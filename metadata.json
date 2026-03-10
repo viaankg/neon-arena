@@ -1,0 +1,5 @@
+{
+  "name": "Neon Arena: 3D Strike",
+  "description": "A fast-paced 3D arena shooter with split-screen multiplayer, AI bots, and unique abilities.",
+  "requestFramePermissions": ["pointer-lock"]
+}
