@@ -12,13 +12,43 @@ export const PointerLockOverlay: React.FC = () => {
     return () => document.removeEventListener('pointerlockchange', handleLockChange);
   }, []);
 
+  const handleClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    // Ensure the window has focus before requesting lock
+    if (!document.hasFocus()) {
+      window.focus();
+    }
+
+    try {
+      // Request pointer lock on the body when the overlay is clicked
+      if (!document.pointerLockElement) {
+        const promise = document.body.requestPointerLock() as any;
+        
+        // Handle modern promise-based requestPointerLock
+        if (promise && typeof promise.then === 'function') {
+          promise.catch((err: any) => {
+            // Silence common benign errors
+            if (err.name === 'NotAllowedError' || err.name === 'SecurityError' || err.message?.includes('exited the lock')) {
+              return;
+            }
+            console.warn('Pointer lock request failed:', err);
+          });
+        }
+      }
+    } catch (error) {
+      // Catch synchronous errors
+    }
+  };
+
   if (isLocked) return null;
 
   return (
     <div 
-      className="absolute inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md pointer-events-none transition-all group"
+      onClick={handleClick}
+      className="absolute inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md cursor-pointer transition-all group"
     >
-      <div className="text-center p-12 border border-white/10 rounded-3xl bg-white/5 shadow-2xl transform transition-transform group-hover:scale-105 pointer-events-none">
+      <div className="text-center p-12 border border-white/10 rounded-3xl bg-white/5 shadow-2xl transform transition-transform group-hover:scale-105">
         <div className="mb-6 flex justify-center">
           <div className="relative">
             <div className="w-16 h-16 border-2 border-white/20 rounded-full animate-[spin_3s_linear_infinite]" />
