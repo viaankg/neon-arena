@@ -65,10 +65,9 @@ export const ControlsDropdown = () => {
     { key: '1-3', action: 'Switch', icon: <Keyboard size={14} /> },
     { key: 'B', action: 'Loadout', icon: <ShoppingBag size={14} /> },
     { key: 'M', action: 'Controls', icon: <HelpCircle size={14} /> },
-    { key: 'Q', action: 'Speed', icon: <Zap size={14} className="text-cyan-400" /> },
-    { key: 'E', action: 'Rewind', icon: <RotateCcw size={14} className="text-purple-400" /> },
-    { key: 'F', action: 'Shield', icon: <Shield size={14} className="text-blue-400" /> },
-    { key: 'C', action: 'Stun', icon: <Target size={14} className="text-orange-400" /> },
+    { key: 'Q', action: 'Ability 1', icon: <Zap size={14} className="text-cyan-400" /> },
+    { key: 'E', action: 'Ability 2', icon: <Zap size={14} className="text-purple-400" /> },
+    { key: 'F', action: 'Ability 3', icon: <Zap size={14} className="text-blue-400" /> },
   ];
 
   return (

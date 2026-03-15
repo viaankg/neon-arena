@@ -4,7 +4,15 @@ import { motion } from 'motion/react';
 import { Play, Users, Settings, Trophy, Skull, ShoppingBag } from 'lucide-react';
 
 export const Menu = () => {
-  const { mode, setMode, difficulty, setDifficulty, selectedMap, setMap, startGame, gameState, setLoadoutOpen } = useGameStore();
+  const mode = useGameStore(state => state.mode);
+  const setMode = useGameStore(state => state.setMode);
+  const difficulty = useGameStore(state => state.difficulty);
+  const setDifficulty = useGameStore(state => state.setDifficulty);
+  const selectedMap = useGameStore(state => state.selectedMap);
+  const setMap = useGameStore(state => state.setMap);
+  const startGame = useGameStore(state => state.startGame);
+  const gameState = useGameStore(state => state.gameState);
+  const setLoadoutOpen = useGameStore(state => state.setLoadoutOpen);
 
   if (gameState !== 'MENU') return null;
 

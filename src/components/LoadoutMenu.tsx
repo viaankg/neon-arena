@@ -1,7 +1,7 @@
-import React from 'react';
-import { useGameStore, WEAPONS, WeaponType } from '../hooks/useGameStore';
+import React, { useState } from 'react';
+import { useGameStore, WEAPONS, WeaponType, ABILITIES, AbilityType } from '../hooks/useGameStore';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Sword, Crosshair, Shield } from 'lucide-react';
+import { X, Sword, Crosshair, Shield, Zap } from 'lucide-react';
 
 interface LoadoutMenuProps {
   isOpen: boolean;
@@ -9,8 +9,9 @@ interface LoadoutMenuProps {
 }
 
 export const LoadoutMenu: React.FC<LoadoutMenuProps> = ({ isOpen, onClose }) => {
-  const { players, setWeapon } = useGameStore();
+  const { players, setWeapon, setAbility } = useGameStore();
   const player = players[0]; // Assume single player for now
+  const [activeTab, setActiveTab] = useState<'WEAPONS' | 'ABILITIES'>('WEAPONS');
 
   if (!player) return null;
 
@@ -57,6 +58,53 @@ export const LoadoutMenu: React.FC<LoadoutMenuProps> = ({ isOpen, onClose }) => 
     );
   };
 
+  const renderAbilitySlot = (slot: number) => {
+    const currentAbilityId = player.selectedAbilities[slot];
+    const allAbilities = Object.values(ABILITIES);
+
+    return (
+      <div className="space-y-4">
+        <h3 className="text-xs uppercase tracking-[0.3em] text-white/40 flex items-center gap-2">
+          <Zap size={14} />
+          SLOT {slot + 1}
+        </h3>
+        <div className="grid grid-cols-1 gap-2">
+          {allAbilities.map(ability => {
+            const isSelectedInOtherSlot = player.selectedAbilities.some((a, i) => a === ability.id && i !== slot);
+            return (
+              <button
+                key={ability.id}
+                disabled={isSelectedInOtherSlot}
+                onClick={() => setAbility(player.id, slot, ability.id)}
+                className={`p-4 rounded-xl border transition-all text-left group ${
+                  currentAbilityId === ability.id
+                    ? 'bg-cyan-500 text-black border-cyan-400'
+                    : isSelectedInOtherSlot 
+                      ? 'bg-white/2 opacity-20 cursor-not-allowed border-transparent'
+                      : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
+                }`}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="font-bold text-sm tracking-tight">{ability.name}</div>
+                    <div className={`text-[10px] uppercase tracking-wider mt-1 ${
+                      currentAbilityId === ability.id ? 'text-black/60' : 'text-white/40'
+                    }`}>
+                      {ability.description}
+                    </div>
+                  </div>
+                  {currentAbilityId === ability.id && (
+                    <div className="w-2 h-2 rounded-full bg-black animate-pulse" />
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -70,13 +118,29 @@ export const LoadoutMenu: React.FC<LoadoutMenuProps> = ({ isOpen, onClose }) => 
             initial={{ scale: 0.9, y: 20 }}
             animate={{ scale: 1, y: 0 }}
             exit={{ scale: 0.9, y: 20 }}
-            className="w-full max-w-5xl bg-zinc-900/50 border border-white/10 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[80vh]"
+            className="w-full max-w-6xl bg-zinc-900/50 border border-white/10 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
           >
             {/* Header */}
             <div className="p-8 border-b border-white/10 flex justify-between items-center bg-white/5">
-              <div>
-                <h2 className="text-3xl font-bold tracking-tighter text-white">LOADOUT</h2>
-                <p className="text-white/40 text-xs uppercase tracking-[0.2em] mt-1">Configure your arsenal</p>
+              <div className="flex items-center gap-12">
+                <div>
+                  <h2 className="text-3xl font-bold tracking-tighter text-white">LOADOUT</h2>
+                  <p className="text-white/40 text-xs uppercase tracking-[0.2em] mt-1">Configure your arsenal</p>
+                </div>
+                <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                  <button 
+                    onClick={() => setActiveTab('WEAPONS')}
+                    className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'WEAPONS' ? 'bg-white text-black' : 'text-white/40 hover:text-white'}`}
+                  >
+                    Weapons
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab('ABILITIES')}
+                    className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'ABILITIES' ? 'bg-white text-black' : 'text-white/40 hover:text-white'}`}
+                  >
+                    Abilities
+                  </button>
+                </div>
               </div>
               <button
                 onClick={onClose}
@@ -88,11 +152,19 @@ export const LoadoutMenu: React.FC<LoadoutMenuProps> = ({ isOpen, onClose }) => 
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-8">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                {renderWeaponCategory('PRIMARY', 0)}
-                {renderWeaponCategory('SECONDARY', 1)}
-                {renderWeaponCategory('MELEE', 2)}
-              </div>
+              {activeTab === 'WEAPONS' ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                  {renderWeaponCategory('PRIMARY', 0)}
+                  {renderWeaponCategory('SECONDARY', 1)}
+                  {renderWeaponCategory('MELEE', 2)}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                  {renderAbilitySlot(0)}
+                  {renderAbilitySlot(1)}
+                  {renderAbilitySlot(2)}
+                </div>
+              )}
             </div>
 
             {/* Footer */}

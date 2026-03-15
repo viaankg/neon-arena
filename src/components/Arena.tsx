@@ -1,10 +1,16 @@
 import React from 'react';
 import * as THREE from 'three';
+import { useFrame } from '@react-three/fiber';
 import { useBox, usePlane } from '@react-three/cannon';
 import { useGameStore } from '../hooks/useGameStore';
 
 export const Arena = () => {
   const selectedMap = useGameStore(state => state.selectedMap);
+  const tick = useGameStore(state => state.tick);
+
+  useFrame((_, delta) => {
+    tick(delta);
+  });
 
   // Floor
   const [floorRef] = usePlane(() => ({

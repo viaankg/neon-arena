@@ -11,10 +11,23 @@ export const Effects: React.FC = () => {
       {impacts.map((impact) => (
         <group key={impact.id} position={impact.position}>
           <pointLight color={impact.color} intensity={impact.isExplosion ? 5 : 1} distance={impact.isExplosion ? 10 : 2} />
-          <mesh>
-            <sphereGeometry args={[impact.isExplosion ? (impact.radius || 0.5) : 0.05]} />
-            <meshBasicMaterial color={impact.color} transparent opacity={0.4} />
-          </mesh>
+          {(impact.color === 'purple' || impact.color === '#a020f0') ? (
+            <group>
+              <mesh>
+                <sphereGeometry args={[impact.radius || 5]} />
+                <meshPhongMaterial color={impact.color} transparent opacity={0.2} emissive={impact.color} emissiveIntensity={2} />
+              </mesh>
+              <mesh rotation={[Math.PI / 2, 0, 0]}>
+                <torusGeometry args={[impact.radius || 5, 0.1, 16, 100]} />
+                <meshBasicMaterial color="magenta" transparent opacity={0.5} />
+              </mesh>
+            </group>
+          ) : (
+            <mesh>
+              <sphereGeometry args={[impact.isExplosion ? (impact.radius || 0.5) : 0.05]} />
+              <meshBasicMaterial color={impact.color} transparent opacity={0.4} />
+            </mesh>
+          )}
           {impact.isExplosion && (
             <mesh>
               <sphereGeometry args={[impact.radius || 1]} />

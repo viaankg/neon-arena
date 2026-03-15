@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { useSphere } from '@react-three/cannon';
 import { Vector3 } from 'three';
 import { Billboard } from '@react-three/drei';
+import { Select } from '@react-three/postprocessing';
 import { useGameStore } from '../hooks/useGameStore';
 
 interface BotProps {
@@ -11,12 +12,18 @@ interface BotProps {
 }
 
 export const Bot: React.FC<BotProps> = ({ id, difficulty }) => {
-  const botState = useGameStore(state => state.bots.find(b => b.id === id));
-  const { playerPositions, damagePlayer, updateBotPosition } = useGameStore();
+  const health = useGameStore(state => state.bots.find(b => b.id === id)?.health);
+  const isStunned = useGameStore(state => state.bots.find(b => b.id === id)?.isStunned);
+  const initialPosition = useGameStore(state => state.bots.find(b => b.id === id)?.position);
+  
+  const playerPositions = useGameStore(state => state.playerPositions);
+  const impacts = useGameStore(state => state.impacts);
+  const damagePlayer = useGameStore(state => state.damagePlayer);
+  const updateBotPosition = useGameStore(state => state.updateBotPosition);
   
   const [ref, api] = useSphere(() => ({
     mass: 1,
-    position: botState?.position || [0, 2, 0],
+    position: initialPosition || [0, 2, 0],
     args: [0.6],
     type: 'Dynamic',
   }));
@@ -33,8 +40,8 @@ export const Bot: React.FC<BotProps> = ({ id, difficulty }) => {
   const lastShotTime = useRef(0);
 
   useFrame((state) => {
-    if (!botState || botState.health <= 0 || botState.isStunned) {
-      if (botState?.isStunned) {
+    if (health === undefined || health <= 0 || isStunned) {
+      if (isStunned) {
         api.velocity.set(0, velocity.current[1], 0);
       }
       return;
@@ -54,12 +61,15 @@ export const Bot: React.FC<BotProps> = ({ id, difficulty }) => {
       }
     });
 
+    let finalVelocity = new Vector3(0, 0, 0);
+
     if (nearestPlayerId !== -1 && minDist < 30) {
       const targetPos = new Vector3(...playerPositions[nearestPlayerId]);
       
       // Move towards player
       const dir = new Vector3().subVectors(targetPos, currentPos).normalize();
-      api.velocity.set(dir.x * (difficulty === 'HARD' ? 4 : 2), velocity.current[1], dir.z * (difficulty === 'HARD' ? 4 : 2));
+      const speed = difficulty === 'HARD' ? 4 : 2;
+      finalVelocity.set(dir.x * speed, 0, dir.z * speed);
 
       // Shoot
       const now = state.clock.getElapsedTime();
@@ -86,44 +96,64 @@ export const Bot: React.FC<BotProps> = ({ id, difficulty }) => {
       }
     } else {
       // Idle/Patrol
-      api.velocity.set(Math.sin(state.clock.elapsedTime) * 2, velocity.current[1], Math.cos(state.clock.elapsedTime) * 2);
+      finalVelocity.set(Math.sin(state.clock.elapsedTime) * 2, 0, Math.cos(state.clock.elapsedTime) * 2);
     }
+
+    // Apply Gravity Orb pull
+    impacts.forEach(impact => {
+      if (impact.color === 'purple') {
+        const impactPos = new Vector3(...impact.position);
+        const dist = currentPos.distanceTo(impactPos);
+        const pullRadius = (impact.radius || 10) * 1.5; // Pull from slightly outside visual radius
+        
+        if (dist < pullRadius) {
+          const pullDir = new Vector3().subVectors(impactPos, currentPos).normalize();
+          // Stronger pull as you get closer
+          const pullStrength = Math.pow(1 - dist / pullRadius, 0.5) * 15;
+          finalVelocity.add(pullDir.multiplyScalar(pullStrength));
+        }
+      }
+    });
+
+    api.velocity.set(finalVelocity.x, velocity.current[1] + finalVelocity.y, finalVelocity.z);
   });
 
-  if (!botState || botState.health <= 0) return null;
-
+  if (health === undefined || health <= 0) return null;
+  
   return (
-    <mesh ref={ref as any} name="bot" userData={{ botId: id }}>
-      <sphereGeometry args={[0.6]} />
-      <meshStandardMaterial 
-        color={botState.isStunned ? "yellow" : "red"} 
-        emissive={botState.isStunned ? "yellow" : "red"} 
-        emissiveIntensity={0.5} 
-      />
-      {/* Health Bar Billboard */}
-      <Billboard position={[0, 1.2, 0]}>
-        <mesh scale={[botState.health / 100, 1, 1]}>
-          <boxGeometry args={[1, 0.1, 0.01]} />
-          <meshStandardMaterial color="lime" />
-        </mesh>
-        <mesh position={[0, 0, -0.01]}>
-          <boxGeometry args={[1.05, 0.15, 0.01]} />
-          <meshStandardMaterial color="black" transparent opacity={0.5} />
-        </mesh>
-      </Billboard>
-
-      {/* Bot Gun */}
-      <group position={[0.4, -0.2, -0.4]} rotation={[0, 0, 0]}>
-        <mesh castShadow>
-          <boxGeometry args={[0.1, 0.15, 0.5]} />
-          <meshStandardMaterial color="#333" />
-        </mesh>
-        <mesh position={[0, 0, -0.3]}>
-          <boxGeometry args={[0.05, 0.05, 0.4]} />
-          <meshStandardMaterial color="#111" />
-        </mesh>
-      </group>
-    </mesh>
+    <Select enabled>
+      <mesh ref={ref as any} name="bot" userData={{ botId: id }}>
+        <sphereGeometry args={[0.6]} />
+        <meshStandardMaterial 
+          color={isStunned ? "yellow" : "red"} 
+          emissive={isStunned ? "yellow" : "red"} 
+          emissiveIntensity={0.5} 
+        />
+        {/* Health Bar Billboard */}
+        <Billboard position={[0, 1.2, 0]}>
+          <mesh scale={[(health || 0) / 100, 1, 1]}>
+            <boxGeometry args={[1, 0.1, 0.01]} />
+            <meshStandardMaterial color="lime" />
+          </mesh>
+          <mesh position={[0, 0, -0.01]}>
+            <boxGeometry args={[1.05, 0.15, 0.01]} />
+            <meshStandardMaterial color="black" transparent opacity={0.5} />
+          </mesh>
+        </Billboard>
+  
+        {/* Bot Gun */}
+        <group position={[0.4, -0.2, -0.4]} rotation={[0, 0, 0]}>
+          <mesh castShadow>
+            <boxGeometry args={[0.1, 0.15, 0.5]} />
+            <meshStandardMaterial color="#333" />
+          </mesh>
+          <mesh position={[0, 0, -0.3]}>
+            <boxGeometry args={[0.05, 0.05, 0.4]} />
+            <meshStandardMaterial color="#111" />
+          </mesh>
+        </group>
+      </mesh>
+    </Select>
   );
 };
 

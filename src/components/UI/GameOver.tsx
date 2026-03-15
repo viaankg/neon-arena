@@ -4,7 +4,9 @@ import { motion } from 'motion/react';
 import { Trophy, Skull, RotateCcw } from 'lucide-react';
 
 export const GameOver = () => {
-  const { gameState, resetGame, players } = useGameStore();
+  const gameState = useGameStore(state => state.gameState);
+  const resetGame = useGameStore(state => state.resetGame);
+  const players = useGameStore(state => state.players);
 
   if (gameState !== 'VICTORY' && gameState !== 'DEFEAT') return null;
 

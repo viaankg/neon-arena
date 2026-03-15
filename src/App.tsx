@@ -14,8 +14,11 @@ import { Tutorial } from './components/UI/Tutorial';
 import { Effects } from './components/Effects';
 import { LoadoutMenu } from './components/LoadoutMenu';
 import { Settings, ShoppingBag, AlertTriangle } from 'lucide-react';
+import { Selection, EffectComposer, Outline } from '@react-three/postprocessing';
 
 import { Projectiles } from './components/Projectiles';
+import { GrappleVisuals } from './components/GrappleVisuals';
+import { AbilityVisuals } from './components/AbilityVisuals';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: any) {
@@ -51,8 +54,23 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   }
 }
 
+const Bots = ({ difficulty }: { difficulty: any }) => {
+  const botIdsString = useGameStore(state => state.bots.map(b => b.id).join(','));
+  const botIds = React.useMemo(() => botIdsString.split(',').filter(Boolean), [botIdsString]);
+  
+  return (
+    <>
+      {botIds.map(id => (
+        <Bot key={id} id={id} difficulty={difficulty} />
+      ))}
+    </>
+  );
+};
+
 const GameScene = ({ playerId, viewport, isLoadoutOpen }: { playerId: number, viewport: any, isLoadoutOpen: boolean }) => {
   const difficulty = useGameStore(state => state.difficulty);
+  
+  const initialPos = React.useMemo(() => [playerId === 0 ? 20 : -20, 5, playerId === 0 ? 20 : -20] as [number, number, number], [playerId]);
   
   return (
     <div className="relative h-full w-full overflow-hidden border-r border-white/10 last:border-0">
@@ -68,21 +86,33 @@ const GameScene = ({ playerId, viewport, isLoadoutOpen }: { playerId: number, vi
         }>
           <Environment preset="night" />
           
-          <Physics gravity={[0, -9.81, 0]} allowSleep={false}>
-            <Arena />
-            <Effects />
-            <Projectiles />
-            <Player 
-              playerId={playerId} 
-              position={[playerId === 0 ? 20 : -20, 2, playerId === 0 ? 20 : -20]} 
-              viewport={viewport}
+      <Physics gravity={[0, -9.81, 0]} allowSleep={false}>
+        <Selection>
+          <EffectComposer autoClear={false}>
+            <Outline 
+              blur 
+              visibleEdgeColor={0xff0000} 
+              hiddenEdgeColor={0xff0000} 
+              edgeStrength={10} 
+              width={1000}
+              xRay={true}
             />
-            
-            {/* Bots from Store */}
-            {useGameStore(state => state.bots).map(bot => (
-              <Bot key={bot.id} id={bot.id} difficulty={difficulty} />
-            ))}
-          </Physics>
+          </EffectComposer>
+          
+          <Arena />
+          <Effects />
+          <Projectiles />
+          <GrappleVisuals />
+          <AbilityVisuals />
+          <Player 
+            playerId={playerId} 
+            position={initialPos} 
+            viewport={viewport}
+          />
+          
+          <Bots difficulty={difficulty} />
+        </Selection>
+      </Physics>
         </Suspense>
       </Canvas>
       <HUD playerId={playerId} />
@@ -91,7 +121,12 @@ const GameScene = ({ playerId, viewport, isLoadoutOpen }: { playerId: number, vi
 };
 
 export default function App() {
-  const { gameState, mode, players, isLoadoutOpen, setLoadoutOpen } = useGameStore();
+  const gameState = useGameStore(state => state.gameState);
+  const mode = useGameStore(state => state.mode);
+  const playerIdsString = useGameStore(state => state.players.map(p => p.id).join(','));
+  const playerIds = React.useMemo(() => playerIdsString.split(',').filter(Boolean).map(Number), [playerIdsString]);
+  const isLoadoutOpen = useGameStore(state => state.isLoadoutOpen);
+  const setLoadoutOpen = useGameStore(state => state.setLoadoutOpen);
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -119,6 +154,7 @@ export default function App() {
       { name: 'weapon2', keys: ['Digit2'] },
       { name: 'weapon3', keys: ['Digit3'] },
       { name: 'loadout', keys: ['KeyB'] },
+      { name: 'slide', keys: ['ShiftLeft', 'ControlLeft'] },
     ]}>
       <ErrorBoundary>
         <div className="h-screen w-screen bg-black text-white overflow-hidden select-none">
@@ -126,10 +162,10 @@ export default function App() {
             <Menu />
           ) : (
             <div className={`flex h-full w-full ${mode === 'TWO_PLAYER' ? 'flex-row' : ''}`}>
-              {players.map((p, i) => (
+              {playerIds.map((id, i) => (
                 <GameScene 
-                  key={p.id} 
-                  playerId={p.id} 
+                  key={id} 
+                  playerId={id} 
                   viewport={mode === 'TWO_PLAYER' ? { left: i * 0.5, top: 0, width: 0.5, height: 1 } : { left: 0, top: 0, width: 1, height: 1 }} 
                   isLoadoutOpen={isLoadoutOpen}
                 />
@@ -148,7 +184,7 @@ export default function App() {
           {/* Global Instructions Overlay */}
           {gameState === 'PLAYING' && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-none text-[10px] uppercase tracking-[0.4em] text-white/30 text-center">
-              WASD Move • Mouse Aim • Click Shoot • R Reload • Q/E/F/C Abilities • 1-3 Switch • B Loadout • M Controls
+              WASD Move • Shift Slide • Mouse Aim • Click Shoot • R Reload • Q/E/F Abilities • 1-3 Switch • B Loadout • M Controls
             </div>
           )}
   

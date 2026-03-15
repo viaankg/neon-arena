@@ -5,7 +5,10 @@ import { useGameStore } from '../hooks/useGameStore';
 import { Group, Vector3, Raycaster } from 'three';
 
 const Projectile = ({ id, position, velocity, ownerId, weaponId }: { id: string, position: [number, number, number], velocity: [number, number, number], ownerId: number, weaponId: string }) => {
-  const { damageBot, damagePlayer, addImpact, triggerHitMarker } = useGameStore();
+  const damageBot = useGameStore(state => state.damageBot);
+  const damagePlayer = useGameStore(state => state.damagePlayer);
+  const addImpact = useGameStore(state => state.addImpact);
+  const triggerHitMarker = useGameStore(state => state.triggerHitMarker);
   const meshRef = useRef<Group>(null);
   const [bulletModel, setBulletModel] = useState<Group | null>(null);
   const raycaster = useRef(new Raycaster());
@@ -18,10 +21,22 @@ const Projectile = ({ id, position, velocity, ownerId, weaponId }: { id: string,
         setBulletModel(gltf.scene);
       });
     }
+    if (weaponId === 'kunai') {
+      const loader = new GLTFLoader();
+      // Using a generic dagger/kunai model
+      loader.load('https://vazxmixjsiawhamofees.supabase.co/storage/v1/object/public/models/dagger/model.gltf', (gltf) => {
+        setBulletModel(gltf.scene);
+      });
+    }
   }, [weaponId]);
 
   useFrame((state, delta) => {
     if (!meshRef.current) return;
+
+    // Make the projectile face the direction of travel
+    const dir = new Vector3(...velocity).normalize();
+    const targetPos = new Vector3().addVectors(new Vector3(...position), dir);
+    meshRef.current.lookAt(targetPos);
 
     const currentPos = meshRef.current.position;
     const direction = new Vector3(...velocity).normalize();
@@ -97,10 +112,10 @@ const Projectile = ({ id, position, velocity, ownerId, weaponId }: { id: string,
   return (
     <group ref={meshRef} position={position} userData={{ projectileId: id }}>
       {bulletModel ? (
-        <primitive object={bulletModel.clone()} scale={8.0} rotation={[0, Math.PI, 0]} />
+        <primitive object={bulletModel.clone()} scale={100.0} rotation={[0, -Math.PI / 2, 0]} />
       ) : (
         <mesh>
-          <sphereGeometry args={[0.1]} />
+          <sphereGeometry args={[0.5]} />
           <meshBasicMaterial color="yellow" />
         </mesh>
       )}
@@ -109,12 +124,20 @@ const Projectile = ({ id, position, velocity, ownerId, weaponId }: { id: string,
 };
 
 export const Projectiles = () => {
-  const projectiles = useGameStore(state => state.projectiles);
+  const projectileIdsString = useGameStore(state => state.projectiles.map(p => p.id).join(','));
+  const projectileIds = React.useMemo(() => projectileIdsString.split(',').filter(Boolean), [projectileIdsString]);
+
   return (
     <>
-      {projectiles.map(p => (
-        <Projectile key={p.id} {...p} />
+      {projectileIds.map(id => (
+        <ProjectileWrapper key={id} id={id} />
       ))}
     </>
   );
+};
+
+const ProjectileWrapper = ({ id }: { id: string }) => {
+  const projectile = useGameStore(state => state.projectiles.find(p => p.id === id));
+  if (!projectile) return null;
+  return <Projectile {...projectile} />;
 };

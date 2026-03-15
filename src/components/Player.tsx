@@ -1,9 +1,9 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useSphere } from '@react-three/cannon';
 import { Vector3, Raycaster, Vector2, Group, MathUtils } from 'three';
 import { useKeyboardControls } from '@react-three/drei';
-import { useGameStore, WEAPONS } from '../hooks/useGameStore';
+import { useGameStore, WEAPONS, EMPTY_ARRAY } from '../hooks/useGameStore';
 import { WeaponModel } from './WeaponModel';
 import { soundManager } from '../services/SoundManager';
 
@@ -15,8 +15,42 @@ interface PlayerProps {
 
 export const Player: React.FC<PlayerProps> = ({ playerId, position, viewport }) => {
   const { camera, scene } = useThree();
-  const { switchWeapon, reloadWeapon, setADS, setSliding, players, useAbility, addScore, updatePlayerPosition, triggerHitMarker, triggerMuzzleFlash, damageBot, tick } = useGameStore();
-  const playerState = players.find(p => p.id === playerId);
+  
+  // Specific selectors to prevent unnecessary re-renders
+  const isDead = useGameStore(state => state.players.find(p => p.id === playerId)?.isDead);
+  const currentWeaponSlot = useGameStore(state => state.players.find(p => p.id === playerId)?.currentWeaponSlot);
+  const weapons = useGameStore(state => state.players.find(p => p.id === playerId)?.weapons);
+  const ammo = useGameStore(state => state.players.find(p => p.id === playerId)?.ammo);
+  const isADS = useGameStore(state => state.players.find(p => p.id === playerId)?.isADS);
+  const isSliding = useGameStore(state => state.players.find(p => p.id === playerId)?.isSliding);
+  
+  const selectedAbilities = useGameStore(state => state.players.find(p => p.id === playerId)?.selectedAbilities || EMPTY_ARRAY);
+  const isRewindActive = useGameStore(state => (state.players.find(p => p.id === playerId)?.activeAbilities.REWIND || 0) > 0);
+  const isSpeedActive = useGameStore(state => (state.players.find(p => p.id === playerId)?.activeAbilities.SPEED || 0) > 0);
+  const rewindPos = useGameStore(state => state.players.find(p => p.id === playerId)?.positionHistory[0]);
+  
+  const reloadingUntil = useGameStore(state => state.players.find(p => p.id === playerId)?.reloadingUntil);
+  
+  const playerIdsString = useGameStore(state => state.players.map(p => p.id).join(','));
+  const playerIds = useMemo(() => playerIdsString.split(',').filter(Boolean).map(Number), [playerIdsString]);
+  
+  const gameState = useGameStore(state => state.gameState);
+  const updatePlayerPosition = useGameStore(state => state.updatePlayerPosition);
+  const switchWeapon = useGameStore(state => state.switchWeapon);
+  const reloadWeapon = useGameStore(state => state.reloadWeapon);
+  const setADS = useGameStore(state => state.setADS);
+  const setSliding = useGameStore(state => state.setSliding);
+  const useAbility = useGameStore(state => state.useAbility);
+  const addProjectile = useGameStore(state => state.addProjectile);
+  const triggerMuzzleFlash = useGameStore(state => state.triggerMuzzleFlash);
+  const triggerHitMarker = useGameStore(state => state.triggerHitMarker);
+  const damageBot = useGameStore(state => state.damageBot);
+  const setGrapple = useGameStore(state => state.setGrapple);
+  const grappleData = useGameStore(state => state.players.find(p => p.id === playerId)?.grappleData);
+  const isGrappleActive = grappleData?.active;
+  const grappleTarget = grappleData?.target;
+  const dashRequest = useGameStore(state => state.players.find(p => p.id === playerId)?.dashRequest);
+
   const weaponGroup = useRef<Group>(null);
   const rotation = useRef({ x: 0, y: 0 });
 
@@ -32,31 +66,42 @@ export const Player: React.FC<PlayerProps> = ({ playerId, position, viewport }) 
   }));
 
   const velocity = useRef([0, 0, 0]);
-  useEffect(() => api.velocity.subscribe((v) => (velocity.current = v)), [api.velocity]);
+  useEffect(() => {
+    const unsub = api.velocity.subscribe((v) => {
+      velocity.current = v;
+    });
+    return unsub;
+  }, [api.velocity]);
 
   const pos = useRef(position);
   const lastRewindTime = useRef(0);
+  const momentum = useRef(new Vector3(0, 0, 0));
 
   useEffect(() => {
-    updatePlayerPosition(playerId, position);
     const unsubscribe = api.position.subscribe((p) => {
       pos.current = p;
       updatePlayerPosition(playerId, p);
+      
+      // Respawn if fell off
+      if (p[1] < -10) {
+        api.position.set(position[0], 5, position[2]);
+        api.velocity.set(0, 0, 0);
+      }
     });
     return unsubscribe;
-  }, [api.position, playerId, updatePlayerPosition, position]);
+  }, [api.position, playerId, updatePlayerPosition, position, api.velocity]);
 
   // Handle Rewind Teleport
   useEffect(() => {
-    if (playerState?.activeAbilities.REWIND && playerState.activeAbilities.REWIND > 0) {
-      const targetPos = playerState.positionHistory[0];
+    if (isRewindActive) {
+      const targetPos = rewindPos;
       if (targetPos && Date.now() - lastRewindTime.current > 1000) {
         api.position.set(targetPos[0], targetPos[1], targetPos[2]);
         api.velocity.set(0, 0, 0);
         lastRewindTime.current = Date.now();
       }
     }
-  }, [playerState?.activeAbilities.REWIND, playerState?.positionHistory, api.position, api.velocity]);
+  }, [isRewindActive, rewindPos, api.position, api.velocity]);
 
   const moveState = useRef({ forward: false, backward: false, left: false, right: false, jump: false, shooting: false });
   const lastShotTime = useRef(0);
@@ -75,10 +120,10 @@ export const Player: React.FC<PlayerProps> = ({ playerId, position, viewport }) 
     };
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (playerState?.isDead || !document.pointerLockElement) return;
+      if (isDead || !document.pointerLockElement) return;
       
-      const currentWeaponId = playerState?.weapons[playerState.currentWeaponSlot];
-      const isSniperADS = playerState?.isADS && currentWeaponId === 'sniper';
+      const currentWeaponId = weapons?.[currentWeaponSlot || 0];
+      const isSniperADS = isADS && currentWeaponId === 'sniper';
       
       // Sensitivity scaling
       const sensitivity = isSniperADS ? 0.0005 : 0.002;
@@ -96,13 +141,18 @@ export const Player: React.FC<PlayerProps> = ({ playerId, position, viewport }) 
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('mousemove', handleMouseMove);
     };
-  }, [playerId, setADS, playerState?.isDead, playerState?.weapons, playerState?.currentWeaponSlot, playerState?.isADS]);
+  }, [playerId, setADS, isDead, weapons, currentWeaponSlot, isADS]);
 
   useFrame((state, delta) => {
-    if (!playerState || playerState.isDead) return;
+    if (!playerIds.includes(playerId) || isDead) return;
 
-    // Tick cooldowns and durations (only once per frame per player)
-    tick(delta);
+    // Apply dash request
+    if (dashRequest) {
+      momentum.current.set(...dashRequest);
+      useGameStore.setState(s => ({
+        players: s.players.map(p => p.id === playerId ? { ...p, dashRequest: null } : p)
+      }));
+    }
 
     const keys = getKeys();
     const forward = keys.forward;
@@ -110,20 +160,58 @@ export const Player: React.FC<PlayerProps> = ({ playerId, position, viewport }) 
     const left = keys.left;
     const right = keys.right;
     const jump = keys.jump;
+    const slide = keys.slide;
 
     // Handle instant key presses
     if (keys.weapon1) switchWeapon(playerId, 0);
     if (keys.weapon2) switchWeapon(playerId, 1);
     if (keys.weapon3) switchWeapon(playerId, 2);
     if (keys.reload) reloadWeapon(playerId);
-    if (keys.ability1) useAbility(playerId, 'SPEED');
-    if (keys.ability2) useAbility(playerId, 'REWIND');
-    if (keys.ability3) useAbility(playerId, 'SHIELD');
-    if (keys.ability4) useAbility(playerId, 'STUN');
+    
+    const handleAbility = (slot: number) => {
+      const ability = selectedAbilities[slot];
+      if (!ability) return;
+
+      const player = useGameStore.getState().players.find(p => p.id === playerId);
+      if (!player || player.abilityCooldowns[ability] > 0) return;
+
+      if (ability === 'GRAPPLE') {
+        raycaster.current.setFromCamera(new Vector2(0, 0), camera);
+        const intersects = raycaster.current.intersectObjects(scene.children, true)
+          .filter(i => {
+            let obj = i.object;
+            if (obj.name === 'tracer' || obj.name === 'impact') return false;
+            while (obj) {
+              if (obj.userData?.playerId === playerId) return false;
+              obj = obj.parent as any;
+            }
+            return true;
+          });
+
+        if (intersects.length > 0) {
+          const hit = intersects[0];
+          useAbility(playerId, 'GRAPPLE');
+          setGrapple(playerId, true, [hit.point.x, hit.point.y, hit.point.z]);
+          soundManager.playShoot(); // Reuse shoot sound for now
+        }
+      } else {
+        const direction = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        useAbility(playerId, ability, [direction.x, direction.y, direction.z]);
+      }
+    };
+
+    if (keys.ability1) handleAbility(0);
+    if (keys.ability2) handleAbility(1);
+    if (keys.ability3) handleAbility(2);
+
+    // Update sliding state if it changed
+    if (slide !== isSliding) {
+      setSliding(playerId, slide);
+    }
 
     let speed = 12; // Increased base speed
-    if (playerState.isSliding) speed = 20;
-    if (playerState.activeAbilities.SPEED > 0) speed *= 2.0;
+    if (isSliding) speed = 20;
+    if (isSpeedActive) speed *= 2.0;
 
     // Simplified movement logic
     const moveVector = new Vector3(0, 0, 0);
@@ -137,19 +225,42 @@ export const Player: React.FC<PlayerProps> = ({ playerId, position, viewport }) 
     // Rotate moveVector by yaw
     moveVector.applyAxisAngle(new Vector3(0, 1, 0), rotation.current.y);
 
-    // Apply velocity directly
-    api.velocity.set(moveVector.x, velocity.current[1], moveVector.z);
+    // Grapple logic
+    if (isGrappleActive && grappleTarget) {
+      const targetVec = new Vector3(...grappleTarget);
+      const playerPos = new Vector3(...pos.current);
+      const dir = targetVec.clone().sub(playerPos);
+      const dist = dir.length();
+      
+      if (dist < 1.5) {
+        setGrapple(playerId, false, null);
+      } else {
+        dir.normalize().multiplyScalar(45); // Grapple speed
+        moveVector.copy(dir);
+        momentum.current.copy(dir);
+      }
+    } else {
+      // Apply momentum decay
+      momentum.current.multiplyScalar(0.95);
+      if (momentum.current.length() < 0.1) momentum.current.set(0, 0, 0);
+      
+      moveVector.add(momentum.current);
+    }
 
+    // Apply velocity directly
+    api.velocity.set(moveVector.x, isGrappleActive ? moveVector.y : velocity.current[1] + momentum.current.y, moveVector.z);
+
+    // Jump logic - check if on ground (vY close to 0)
     if (jump && Math.abs(velocity.current[1]) < 0.1) {
-      api.velocity.set(velocity.current[0], 6, velocity.current[2]);
+      api.velocity.set(velocity.current[0], 8, velocity.current[2]);
     }
 
     // Apply recoil to camera (visual only on weapon model now)
     recoilOffset.current *= 0.9;
 
     // FOV Zoom
-    const currentWeaponId = playerState.weapons[playerState.currentWeaponSlot];
-    const targetFOV = playerState.isADS ? (currentWeaponId === 'sniper' ? 20 : 45) : 75;
+    const currentWeaponId = weapons?.[currentWeaponSlot || 0];
+    const targetFOV = isADS ? (currentWeaponId === 'sniper' ? 20 : 45) : 75;
     
     if ('fov' in camera) {
       const pCamera = camera as any;
@@ -157,7 +268,7 @@ export const Player: React.FC<PlayerProps> = ({ playerId, position, viewport }) 
       pCamera.updateProjectionMatrix();
     }
 
-    camera.position.copy(new Vector3(pos.current[0], pos.current[1] + (playerState.isSliding ? 0.4 : 0.8), pos.current[2]));
+    camera.position.copy(new Vector3(pos.current[0], pos.current[1] + (isSliding ? 0.4 : 0.8), pos.current[2]));
     camera.rotation.set(rotation.current.x, rotation.current.y, 0, 'YXZ');
 
     if (weaponGroup.current) {
@@ -167,12 +278,12 @@ export const Player: React.FC<PlayerProps> = ({ playerId, position, viewport }) 
 
     // Shooting logic
     if (moveState.current.shooting) {
-      const weapon = WEAPONS[playerState.weapons[playerState.currentWeaponSlot]];
+      const weapon = WEAPONS[weapons?.[currentWeaponSlot || 0] || 'ak47'];
       const now = state.clock.getElapsedTime();
       
       // Melee weapons don't consume ammo and have different logic
-      const hasAmmo = weapon.isMelee ? true : playerState.ammo[weapon.id] > 0;
-      const isReloading = playerState.reloadingUntil > Date.now();
+      const hasAmmo = weapon.isMelee ? true : (ammo?.[weapon.id] || 0) > 0;
+      const isReloading = (reloadingUntil || 0) > Date.now();
 
       if (moveState.current.shooting && !hasAmmo && !isReloading && !weapon.isMelee) {
         reloadWeapon(playerId);
@@ -203,7 +314,7 @@ export const Player: React.FC<PlayerProps> = ({ playerId, position, viewport }) 
           useGameStore.setState((s) => ({
             players: s.players.map(p => p.id === playerId ? {
               ...p,
-              ammo: { ...p.ammo, [weapon.id]: p.ammo[weapon.id] - 1 }
+              ammo: { ...p.ammo, [weapon.id]: (p.ammo[weapon.id] || 0) - 1 }
             } : p)
           }));
         }
