@@ -67,7 +67,7 @@ const Bots = ({ difficulty }: { difficulty: any }) => {
   );
 };
 
-const GameScene = ({ playerId, viewport, isLoadoutOpen }: { playerId: number, viewport: any, isLoadoutOpen: boolean }) => {
+const GameScene = React.memo(({ playerId, viewport, isLoadoutOpen }: { playerId: number, viewport: any, isLoadoutOpen: boolean }) => {
   const difficulty = useGameStore(state => state.difficulty);
   
   const initialPos = React.useMemo(() => [playerId === 0 ? 20 : -20, 5, playerId === 0 ? 20 : -20] as [number, number, number], [playerId]);
@@ -78,47 +78,52 @@ const GameScene = ({ playerId, viewport, isLoadoutOpen }: { playerId: number, vi
         <Sky sunPosition={[100, 20, 100]} />
         <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
         
+        <ambientLight intensity={0.2} />
+        <directionalLight position={[10, 10, 5]} intensity={1} castShadow />
+        
+        <Suspense fallback={null}>
+          <Environment preset="night" />
+        </Suspense>
+
         <Suspense fallback={
           <mesh>
             <boxGeometry args={[1, 1, 1]} />
             <meshStandardMaterial color="cyan" wireframe />
           </mesh>
         }>
-          <Environment preset="night" />
-          
-      <Physics gravity={[0, -9.81, 0]} allowSleep={false}>
-        <Selection>
-          <EffectComposer autoClear={false}>
-            <Outline 
-              blur 
-              visibleEdgeColor={0xff0000} 
-              hiddenEdgeColor={0xff0000} 
-              edgeStrength={10} 
-              width={1000}
-              xRay={true}
-            />
-          </EffectComposer>
-          
-          <Arena />
-          <Effects />
-          <Projectiles />
-          <GrappleVisuals />
-          <AbilityVisuals />
-          <Player 
-            playerId={playerId} 
-            position={initialPos} 
-            viewport={viewport}
-          />
-          
-          <Bots difficulty={difficulty} />
-        </Selection>
-      </Physics>
+          <Physics gravity={[0, -9.81, 0]} allowSleep={false}>
+            <Selection>
+              <EffectComposer autoClear={false}>
+                <Outline 
+                  blur 
+                  visibleEdgeColor={0xff0000} 
+                  hiddenEdgeColor={0xff0000} 
+                  edgeStrength={10} 
+                  width={1000}
+                  xRay={true}
+                />
+              </EffectComposer>
+              
+              <Arena />
+              <Effects />
+              <Projectiles />
+              <GrappleVisuals />
+              <AbilityVisuals />
+              <Player 
+                playerId={playerId} 
+                position={initialPos} 
+                viewport={viewport}
+              />
+              
+              <Bots difficulty={difficulty} />
+            </Selection>
+          </Physics>
         </Suspense>
       </Canvas>
       <HUD playerId={playerId} />
     </div>
   );
-};
+});
 
 export default function App() {
   const gameState = useGameStore(state => state.gameState);
@@ -127,6 +132,14 @@ export default function App() {
   const playerIds = React.useMemo(() => playerIdsString.split(',').filter(Boolean).map(Number), [playerIdsString]);
   const isLoadoutOpen = useGameStore(state => state.isLoadoutOpen);
   const setLoadoutOpen = useGameStore(state => state.setLoadoutOpen);
+
+  const viewports = React.useMemo(() => {
+    return playerIds.map((_, i) => 
+      mode === 'TWO_PLAYER' 
+        ? { left: i * 0.5, top: 0, width: 0.5, height: 1 } 
+        : { left: 0, top: 0, width: 1, height: 1 }
+    );
+  }, [playerIds, mode]);
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -166,7 +179,7 @@ export default function App() {
                 <GameScene 
                   key={id} 
                   playerId={id} 
-                  viewport={mode === 'TWO_PLAYER' ? { left: i * 0.5, top: 0, width: 0.5, height: 1 } : { left: 0, top: 0, width: 1, height: 1 }} 
+                  viewport={viewports[i]} 
                   isLoadoutOpen={isLoadoutOpen}
                 />
               ))}

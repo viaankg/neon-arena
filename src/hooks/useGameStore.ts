@@ -520,19 +520,30 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // Only update if position changed significantly to reduce state updates
     const lastPos = player.positionHistory[player.positionHistory.length - 1];
     if (lastPos && 
-        Math.abs(pos[0] - lastPos[0]) < 0.01 && 
-        Math.abs(pos[1] - lastPos[1]) < 0.01 && 
-        Math.abs(pos[2] - lastPos[2]) < 0.01) {
+        Math.abs(pos[0] - lastPos[0]) < 0.001 && 
+        Math.abs(pos[1] - lastPos[1]) < 0.001 && 
+        Math.abs(pos[2] - lastPos[2]) < 0.001) {
       return state;
     }
 
-    return {
-      playerPositions: { ...state.playerPositions, [id]: pos },
+    const lastGlobalPos = state.playerPositions[id];
+    const globalPosChanged = !lastGlobalPos || 
+                             Math.abs(pos[0] - lastGlobalPos[0]) > 0.001 || 
+                             Math.abs(pos[1] - lastGlobalPos[1]) > 0.001 || 
+                             Math.abs(pos[2] - lastGlobalPos[2]) > 0.001;
+
+    const newState: any = {
       players: state.players.map(p => p.id === id ? {
         ...p,
         positionHistory: [...p.positionHistory.slice(-180), pos] // Keep last 3 seconds at 60fps
       } : p)
     };
+
+    if (globalPosChanged) {
+      newState.playerPositions = { ...state.playerPositions, [id]: pos };
+    }
+
+    return newState;
   }),
 
   updateBotPosition: (id, pos) => set((state) => {
@@ -540,9 +551,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!bot) return state;
 
     // Only update if position changed significantly
-    if (Math.abs(pos[0] - bot.position[0]) < 0.01 && 
-        Math.abs(pos[1] - bot.position[1]) < 0.01 && 
-        Math.abs(pos[2] - bot.position[2]) < 0.01) {
+    if (Math.abs(pos[0] - bot.position[0]) < 0.001 && 
+        Math.abs(pos[1] - bot.position[1]) < 0.001 && 
+        Math.abs(pos[2] - bot.position[2]) < 0.001) {
       return state;
     }
 
@@ -695,24 +706,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
         score: currentScore,
         abilityCooldowns: newCooldowns,
         activeAbilities: newActive,
+        dashRequest: null, // Clear dash request after it's been processed by physics
         grappleData: isGrappleEnding ? { active: false, target: null } : p.grappleData
       };
     });
 
-    const projectilesChanged = JSON.stringify(newProjectiles) !== JSON.stringify(state.projectiles);
-
-    if (!projectilesChanged && !botsChanged && !playersChanged) return state;
-
+    const projectilesChanged = newProjectiles !== state.projectiles;
     const allBotsDead = nextBots.length > 0 && nextBots.every(b => b.health <= 0);
-    const newState: any = {
-      projectiles: newProjectiles,
-      bots: nextBots,
-      players: updatedPlayers
-    };
+    const victoryTriggered = allBotsDead && state.gameState === 'PLAYING';
 
-    if (allBotsDead && state.gameState === 'PLAYING') {
-      newState.gameState = 'VICTORY';
-    }
+    if (!projectilesChanged && !botsChanged && !playersChanged && !victoryTriggered) return state;
+
+    const newState: any = {};
+    if (projectilesChanged) newState.projectiles = newProjectiles;
+    if (botsChanged) newState.bots = nextBots;
+    if (playersChanged) newState.players = updatedPlayers;
+    if (victoryTriggered) newState.gameState = 'VICTORY';
 
     return newState;
   }),
@@ -758,7 +767,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     projectiles: [...state.projectiles, { ...projectile, id: Math.random().toString() }]
   })),
 
-  setBots: (bots) => set({ bots }),
+  setBots: (bots) => set((state) => {
+    if (state.bots === bots) return state;
+    return { bots };
+  }),
 
   updateProjectiles: (delta) => set((state) => {
     const newProjectiles = state.projectiles.map(p => ({
@@ -813,9 +825,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return { players: updatedPlayers };
   }),
 
-  setGrapple: (playerId, active, target) => set((state) => ({
-    players: state.players.map(p => p.id === playerId ? { ...p, grappleData: { active, target } } : p)
-  })),
+  setGrapple: (playerId, active, target) => set((state) => {
+    const player = state.players.find(p => p.id === playerId);
+    if (!player) return state;
+    if (player.grappleData.active === active && 
+        JSON.stringify(player.grappleData.target) === JSON.stringify(target)) return state;
+    return {
+      players: state.players.map(p => p.id === playerId ? { ...p, grappleData: { active, target: target as [number, number, number] | null } } : p)
+    };
+  }),
 
-  setLoadoutOpen: (isLoadoutOpen) => set({ isLoadoutOpen }),
+  setLoadoutOpen: (isLoadoutOpen) => set((state) => {
+    if (state.isLoadoutOpen === isLoadoutOpen) return state;
+    return { isLoadoutOpen };
+  }),
 }));

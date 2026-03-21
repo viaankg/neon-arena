@@ -149,9 +149,6 @@ export const Player: React.FC<PlayerProps> = ({ playerId, position, viewport }) 
     // Apply dash request
     if (dashRequest) {
       momentum.current.set(...dashRequest);
-      useGameStore.setState(s => ({
-        players: s.players.map(p => p.id === playerId ? { ...p, dashRequest: null } : p)
-      }));
     }
 
     const keys = getKeys();

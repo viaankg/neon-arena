@@ -17,16 +17,20 @@ const Projectile = ({ id, position, velocity, ownerId, weaponId }: { id: string,
   useEffect(() => {
     if (weaponId === 'shark') {
       const loader = new GLTFLoader();
-      loader.load('https://files.catbox.moe/y7d1zd.glb', (gltf) => {
-        setBulletModel(gltf.scene);
-      });
+      loader.load(
+        'https://files.catbox.moe/y7d1zd.glb', 
+        (gltf) => {
+          setBulletModel(gltf.scene);
+        },
+        undefined,
+        (error) => {
+          console.error('Failed to load shark model:', error);
+          // Fallback is handled by the null check in return
+        }
+      );
     }
     if (weaponId === 'kunai') {
-      const loader = new GLTFLoader();
-      // Using a generic dagger/kunai model
-      loader.load('https://vazxmixjsiawhamofees.supabase.co/storage/v1/object/public/models/dagger/model.gltf', (gltf) => {
-        setBulletModel(gltf.scene);
-      });
+      // Kunai model loading removed as URL is failing, will fall back to procedural sphere
     }
   }, [weaponId]);
 

@@ -4,6 +4,28 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Crosshair, Shield, Zap, RotateCcw, Target, LogOut } from 'lucide-react';
 import { ControlsDropdown } from './ControlsDropdown';
 
+const HitMarker = ({ playerId }: { playerId: number }) => {
+  const active = useGameStore(state => state.hitMarker.active && state.hitMarker.playerId === playerId);
+  
+  if (!active) return null;
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.5 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0 }}
+      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+    >
+      <div className="relative w-8 h-8">
+        <div className="absolute top-0 left-0 w-3 h-[2px] bg-white rotate-45 origin-left shadow-[0_0_10px_white]" />
+        <div className="absolute top-0 right-0 w-3 h-[2px] bg-white -rotate-45 origin-right shadow-[0_0_10px_white]" />
+        <div className="absolute bottom-0 left-0 w-3 h-[2px] bg-white -rotate-45 origin-left shadow-[0_0_10px_white]" />
+        <div className="absolute bottom-0 right-0 w-3 h-[2px] bg-white rotate-45 origin-right shadow-[0_0_10px_white]" />
+      </div>
+    </motion.div>
+  );
+};
+
 export const HUD = ({ playerId }: { playerId: number }) => {
   const score = useGameStore(state => state.players.find(p => p.id === playerId)?.score);
   const health = useGameStore(state => state.players.find(p => p.id === playerId)?.health);
@@ -11,13 +33,12 @@ export const HUD = ({ playerId }: { playerId: number }) => {
   const weapons = useGameStore(state => state.players.find(p => p.id === playerId)?.weapons);
   const currentWeaponSlot = useGameStore(state => state.players.find(p => p.id === playerId)?.currentWeaponSlot);
   const isADS = useGameStore(state => state.players.find(p => p.id === playerId)?.isADS);
-  
   const selectedAbilities = useGameStore(state => state.players.find(p => p.id === playerId)?.selectedAbilities || []);
   const abilityCooldowns = useGameStore(state => state.players.find(p => p.id === playerId)?.abilityCooldowns || {});
-  
   const reloadingUntil = useGameStore(state => state.players.find(p => p.id === playerId)?.reloadingUntil);
   
   const resetGame = useGameStore(state => state.resetGame);
+  const gameState = useGameStore(state => state.gameState);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -88,23 +109,7 @@ export const HUD = ({ playerId }: { playerId: number }) => {
       </div>
 
       {/* Hit Marker Visual */}
-      <AnimatePresence>
-        {useGameStore(state => state.hitMarker.active && state.hitMarker.playerId === playerId) && (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
-          >
-            <div className="relative w-8 h-8">
-              <div className="absolute top-0 left-0 w-3 h-[2px] bg-white rotate-45 origin-left shadow-[0_0_10px_white]" />
-              <div className="absolute top-0 right-0 w-3 h-[2px] bg-white -rotate-45 origin-right shadow-[0_0_10px_white]" />
-              <div className="absolute bottom-0 left-0 w-3 h-[2px] bg-white -rotate-45 origin-left shadow-[0_0_10px_white]" />
-              <div className="absolute bottom-0 right-0 w-3 h-[2px] bg-white rotate-45 origin-right shadow-[0_0_10px_white]" />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <HitMarker playerId={playerId} />
 
       {/* Sniper Scope Overlay */}
       <AnimatePresence>

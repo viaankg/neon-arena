@@ -16,8 +16,6 @@ export const Bot: React.FC<BotProps> = ({ id, difficulty }) => {
   const isStunned = useGameStore(state => state.bots.find(b => b.id === id)?.isStunned);
   const initialPosition = useGameStore(state => state.bots.find(b => b.id === id)?.position);
   
-  const playerPositions = useGameStore(state => state.playerPositions);
-  const impacts = useGameStore(state => state.impacts);
   const damagePlayer = useGameStore(state => state.damagePlayer);
   const updateBotPosition = useGameStore(state => state.updateBotPosition);
   
@@ -46,6 +44,8 @@ export const Bot: React.FC<BotProps> = ({ id, difficulty }) => {
       }
       return;
     }
+
+    const { playerPositions, impacts } = useGameStore.getState();
 
     // Target nearest player
     let nearestPlayerId = -1;
