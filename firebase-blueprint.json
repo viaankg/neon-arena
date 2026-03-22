@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and stats. Users are identified by their unique username, which is mapped to an internal email for authentication.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "gems": { "type": "integer" },
+        "unlockedWeapons": { "type": "array", "items": { "type": "string" } },
+        "unlockedAbilities": { "type": "array", "items": { "type": "string" } },
+        "unlockedSkins": { "type": "array", "items": { "type": "string" } },
+        "selectedSkins": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastUpdate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "username", "email"]
+    },
+    "Session": {
+      "title": "Game Session",
+      "description": "Active multiplayer game session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "hostId": { "type": "string" },
+        "status": { "type": "string", "enum": ["waiting", "playing", "finished"] },
+        "map": { "type": "string" },
+        "difficulty": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "hostId", "status"]
+    },
+    "SessionPlayer": {
+      "title": "Session Player",
+      "description": "Player state within a session",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "username": { "type": "string" },
+        "position": { "type": "array", "items": { "type": "number" } },
+        "health": { "type": "number" },
+        "score": { "type": "integer" },
+        "isDead": { "type": "boolean" },
+        "currentWeapon": { "type": "string" },
+        "lastUpdate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "username"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/sessions/{sessionId}": {
+      "schema": "Session",
+      "description": "Game sessions"
+    },
+    "/sessions/{sessionId}/players/{uid}": {
+      "schema": "SessionPlayer",
+      "description": "Real-time player states in a session"
+    }
+  }
+}

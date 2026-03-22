@@ -1,0 +1,113 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) ||
+        request.resource.data.uid == request.auth.uid;
+    }
+    function uidNotModified() {
+      return !('uid' in request.resource.data) ||
+        request.resource.data.uid == resource.data.uid;
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'username', 'email']) &&
+             hasOnlyAllowedFields(['uid', 'username', 'email', 'gems', 'unlockedWeapons', 'unlockedAbilities', 'unlockedSkins', 'selectedSkins', 'createdAt', 'lastUpdate']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.username is string && data.username.size() >= 3 && data.username.size() <= 20 &&
+             data.email is string && data.email.size() <= 100 &&
+             (!('gems' in data) || data.gems is number) &&
+             (!('unlockedWeapons' in data) || data.unlockedWeapons is list) &&
+             (!('unlockedAbilities' in data) || data.unlockedAbilities is list) &&
+             (!('unlockedSkins' in data) || data.unlockedSkins is list) &&
+             (!('selectedSkins' in data) || data.selectedSkins is map) &&
+             (!('createdAt' in data) || data.createdAt is timestamp) &&
+             (!('lastUpdate' in data) || data.lastUpdate is timestamp);
+    }
+
+    function isValidSession(data) {
+      return hasRequiredFields(['hostId', 'hostName', 'arenaName', 'status', 'map', 'difficulty', 'maxPlayers', 'createdAt']) &&
+             hasOnlyAllowedFields(['hostId', 'hostName', 'arenaName', 'status', 'map', 'difficulty', 'maxPlayers', 'createdAt', 'maxWaves', 'playerCount', 'currentWave', 'waveIntermission', 'waveIntermissionTimer']) &&
+             data.hostId is string && data.hostId == request.auth.uid &&
+             data.hostName is string && data.hostName.size() <= 50 &&
+             data.arenaName is string && data.arenaName.size() > 0 && data.arenaName.size() <= 30 &&
+             data.status in ['waiting', 'playing', 'finished'] &&
+             data.map is string && data.map.size() <= 50 &&
+             data.difficulty is string && data.difficulty.size() <= 20 &&
+             data.maxPlayers is number && data.maxPlayers >= 2 && data.maxPlayers <= 8 &&
+             (!('maxWaves' in data) || (data.maxWaves is number)) &&
+             (!('playerCount' in data) || (data.playerCount is number)) &&
+             (!('currentWave' in data) || (data.currentWave is number)) &&
+             (!('waveIntermission' in data) || (data.waveIntermission is bool)) &&
+             (!('waveIntermissionTimer' in data) || (data.waveIntermissionTimer is number)) &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidSessionUpdate(data) {
+      return hasOnlyAllowedFields(['hostId', 'hostName', 'arenaName', 'status', 'map', 'difficulty', 'maxPlayers', 'createdAt', 'maxWaves', 'playerCount', 'currentWave', 'waveIntermission', 'waveIntermissionTimer']) &&
+             (!('playerCount' in data) || (data.playerCount is number)) &&
+             (!('status' in data) || (data.status in ['waiting', 'playing', 'finished'])) &&
+             (!('currentWave' in data) || (data.currentWave is number)) &&
+             (!('waveIntermission' in data) || (data.waveIntermission is bool)) &&
+             (!('waveIntermissionTimer' in data) || (data.waveIntermissionTimer is number));
+    }
+
+    function isValidSessionPlayer(data) {
+      return hasRequiredFields(['uid', 'username', 'position', 'health', 'score', 'isDead', 'currentWeapon', 'lastUpdate']) &&
+             hasOnlyAllowedFields(['uid', 'username', 'position', 'health', 'score', 'isDead', 'currentWeapon', 'lastUpdate']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.username is string && data.username.size() <= 50 &&
+             data.position is list && data.position.size() == 3 &&
+             data.health is number &&
+             data.score is number &&
+             data.isDead is bool &&
+             data.currentWeapon is string &&
+             data.lastUpdate is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+    
+    // User profiles
+    match /users/{uid} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(uid) && isValidUser(request.resource.data) && uidUnchanged();
+      allow update: if isOwner(uid) && isValidUser(request.resource.data) && uidNotModified();
+    }
+
+    // Game sessions
+    match /sessions/{sessionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidSession(request.resource.data);
+      allow update: if isAuthenticated() && isValidSessionUpdate(request.resource.data);
+      allow delete: if isAuthenticated() && (resource.data.hostId == request.auth.uid || resource.data.playerCount <= 1);
+
+      // Players in a session
+      match /players/{uid} {
+        allow read: if isAuthenticated();
+        allow create, update: if isOwner(uid) && isValidSessionPlayer(request.resource.data);
+        allow delete: if isOwner(uid);
+      }
+    }
+  }
+}

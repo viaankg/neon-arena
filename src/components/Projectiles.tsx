@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { useGameStore } from '../hooks/useGameStore';
+import { useGameStore, WEAPONS } from '../hooks/useGameStore';
 import { Group, Vector3, Raycaster } from 'three';
 
 const Projectile = ({ id, position, velocity, ownerId, weaponId }: { id: string, position: [number, number, number], velocity: [number, number, number], ownerId: number, weaponId: string }) => {
@@ -37,28 +37,25 @@ const Projectile = ({ id, position, velocity, ownerId, weaponId }: { id: string,
   useFrame((state, delta) => {
     if (!meshRef.current) return;
 
-    // Make the projectile face the direction of travel
-    const dir = new Vector3(...velocity).normalize();
-    const targetPos = new Vector3().addVectors(new Vector3(...position), dir);
-    meshRef.current.lookAt(targetPos);
-
     const currentPos = meshRef.current.position;
-    const direction = new Vector3(...velocity).normalize();
-    const distance = new Vector3(...velocity).length() * delta;
+    const vel = new Vector3(...velocity);
+    const direction = vel.clone().normalize();
+    const distance = vel.length() * delta;
 
-    // Collision detection
-    (raycaster.current as any).camera = state.camera;
+    // Collision detection from last position to new position
     raycaster.current.set(lastPos.current, direction);
+    raycaster.current.far = distance + 0.5; // Small buffer
+    
     const intersects = raycaster.current.intersectObjects(state.scene.children, true)
       .filter(i => {
         let obj = i.object;
-        // Skip tracers and impacts
         if (obj.type === 'Line2' || obj.type === 'LineSegments2' || obj.name === 'tracer' || obj.name === 'impact') return false;
         
-        while (obj) {
-          if (obj.userData?.playerId === ownerId) return false;
-          if (obj.userData?.projectileId === id) return false;
-          obj = obj.parent as any;
+        let current = obj;
+        while (current) {
+          if (current.userData?.playerId === ownerId) return false;
+          if (current.userData?.projectileId === id) return false;
+          current = current.parent as any;
         }
         return true;
       });
@@ -84,13 +81,15 @@ const Projectile = ({ id, position, velocity, ownerId, weaponId }: { id: string,
         targetObj = targetObj.parent as any;
       }
 
-      // Calculate damage based on distance for Shark Blaster
-      let damage = 35; // Default
+      // Calculate damage
+      const weapon = WEAPONS[weaponId];
+      let damage = weapon?.damage || 35;
+      
       if (weaponId === 'shark') {
         const distFromOwner = new Vector3(...position).distanceTo(hitPoint);
-        if (distFromOwner < 5) damage = 100; // One shot
-        else if (distFromOwner < 15) damage = 50; // Two shot
-        else damage = 34; // Three shot
+        if (distFromOwner < 5) damage = 100;
+        else if (distFromOwner < 15) damage = 50;
+        else damage = 34;
       }
 
       if (botId) {
@@ -101,21 +100,37 @@ const Projectile = ({ id, position, velocity, ownerId, weaponId }: { id: string,
         triggerHitMarker(ownerId);
       }
 
-      // Explosion effect
-      addImpact([hitPoint.x, hitPoint.y, hitPoint.z], 'orange', true, ownerId, 5, 50);
+      addImpact([hitPoint.x, hitPoint.y, hitPoint.z], weaponId === 'admin_blaster' ? '#FF00FF' : 'orange', true, ownerId, weaponId === 'admin_blaster' ? 10 : 5, weaponId === 'admin_blaster' ? 500 : 50);
       
-      // Remove projectile from store
       useGameStore.setState(s => ({
         projectiles: s.projectiles.filter(p => p.id !== id)
       }));
+      return;
     }
 
+    // Move the projectile
+    currentPos.add(vel.multiplyScalar(delta));
     lastPos.current.copy(currentPos);
+    
+    // Face the direction of travel
+    meshRef.current.lookAt(currentPos.clone().add(direction));
   });
 
   return (
     <group ref={meshRef} position={position} userData={{ projectileId: id }}>
-      {bulletModel ? (
+      {weaponId === 'admin_blaster' ? (
+        <group>
+          <mesh>
+            <sphereGeometry args={[0.8]} />
+            <meshBasicMaterial color="#FF00FF" />
+          </mesh>
+          <mesh>
+            <sphereGeometry args={[1.2]} />
+            <meshBasicMaterial color="#FF00FF" transparent opacity={0.3} />
+          </mesh>
+          <pointLight color="#FF00FF" intensity={5} distance={5} />
+        </group>
+      ) : bulletModel ? (
         <primitive object={bulletModel.clone()} scale={100.0} rotation={[0, -Math.PI / 2, 0]} />
       ) : (
         <mesh>

@@ -4,12 +4,12 @@ import { useFrame } from '@react-three/fiber';
 import { useBox, usePlane } from '@react-three/cannon';
 import { useGameStore } from '../hooks/useGameStore';
 
-export const Arena = () => {
+export const Arena = ({ isPrimary }: { isPrimary?: boolean }) => {
   const selectedMap = useGameStore(state => state.selectedMap);
   const tick = useGameStore(state => state.tick);
 
   useFrame((_, delta) => {
-    tick(delta);
+    if (isPrimary) tick(delta);
   });
 
   // Floor
@@ -121,18 +121,112 @@ export const Arena = () => {
     </group>
   );
 
+  const LavaArena = () => (
+    <group>
+      <Wall pos={[0, 10, 100]} size={[200, 20, 2]} color="#ff4400" />
+      <Wall pos={[0, 10, -100]} size={[200, 20, 2]} color="#ff4400" />
+      <Wall pos={[100, 10, 0]} size={[2, 20, 200]} color="#ff4400" />
+      <Wall pos={[-100, 10, 0]} size={[2, 20, 200]} color="#ff4400" />
+
+      {/* Lava Pits (Visual only for now) */}
+      <Wall pos={[40, 0.1, 40]} size={[30, 0.2, 30]} color="#ff2200" outlineColor="#ffaa00" />
+      <Wall pos={[-40, 0.1, -40]} size={[30, 0.2, 30]} color="#ff2200" outlineColor="#ffaa00" />
+
+      {/* Obsidian Pillars */}
+      <Wall pos={[20, 15, 20]} size={[5, 30, 5]} color="#050505" />
+      <Wall pos={[-20, 10, 20]} size={[8, 20, 8]} color="#050505" />
+      <Wall pos={[20, 12, -20]} size={[6, 24, 6]} color="#050505" />
+      <Wall pos={[-20, 18, -20]} size={[4, 36, 4]} color="#050505" />
+
+      <pointLight position={[0, 15, 0]} intensity={4} color="#ff4400" />
+    </group>
+  );
+
+  const ForestArena = () => (
+    <group>
+      <Wall pos={[0, 10, 100]} size={[200, 20, 2]} color="#1a4a1a" />
+      <Wall pos={[0, 10, -100]} size={[200, 20, 2]} color="#1a4a1a" />
+      <Wall pos={[100, 10, 0]} size={[2, 20, 200]} color="#1a4a1a" />
+      <Wall pos={[-100, 10, 0]} size={[2, 20, 200]} color="#1a4a1a" />
+
+      {/* "Trees" */}
+      {Array.from({ length: 12 }).map((_, i) => {
+        const angle = (i / 12) * Math.PI * 2;
+        const radius = 60 + Math.random() * 20;
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+        return <Wall key={i} pos={[x, 15, z]} size={[4, 30, 4]} color="#3d2b1f" outlineColor="#2d5a27" />;
+      })}
+
+      {/* Boulders */}
+      <Wall pos={[10, 4, 10]} size={[8, 8, 8]} color="#444" />
+      <Wall pos={[-15, 3, -15]} size={[10, 6, 10]} color="#444" />
+      <Wall pos={[30, 5, -20]} size={[12, 10, 12]} color="#444" />
+
+      <pointLight position={[0, 20, 0]} intensity={2} color="#2d5a27" />
+    </group>
+  );
+
+  const IceArena = () => (
+    <group>
+      <Wall pos={[0, 10, 100]} size={[200, 20, 2]} color="#aaddff" />
+      <Wall pos={[0, 10, -100]} size={[200, 20, 2]} color="#aaddff" />
+      <Wall pos={[100, 10, 0]} size={[2, 20, 200]} color="#aaddff" />
+      <Wall pos={[-100, 10, 0]} size={[2, 20, 200]} color="#aaddff" />
+
+      {/* Ice Crystals */}
+      <Wall pos={[30, 10, 30]} size={[4, 20, 4]} color="#ffffff" outlineColor="#00ffff" />
+      <Wall pos={[-30, 15, -30]} size={[6, 30, 6]} color="#ffffff" outlineColor="#00ffff" />
+      <Wall pos={[40, 8, -40]} size={[8, 16, 8]} color="#ffffff" outlineColor="#00ffff" />
+      <Wall pos={[-40, 12, 40]} size={[5, 24, 5]} color="#ffffff" outlineColor="#00ffff" />
+
+      {/* Ice Blocks */}
+      <Wall pos={[0, 4, 50]} size={[20, 8, 5]} color="#ccf0ff" />
+      <Wall pos={[0, 4, -50]} size={[20, 8, 5]} color="#ccf0ff" />
+
+      <pointLight position={[0, 20, 0]} intensity={3} color="#00ffff" />
+    </group>
+  );
+
   return (
     <group>
       {/* Floor */}
       <mesh ref={floorRef as any} receiveShadow>
         <planeGeometry args={[200, 200]} />
-        <meshStandardMaterial color={selectedMap === 'VOID' ? "#000" : "#111"} />
+        <meshStandardMaterial 
+          color={
+            selectedMap === 'VOID' ? "#000" : 
+            selectedMap === 'LAVA' ? "#1a0a00" :
+            selectedMap === 'FOREST' ? "#0a1a0a" :
+            selectedMap === 'ICE' ? "#eefaff" :
+            "#111"
+          } 
+        />
       </mesh>
-      <gridHelper args={[200, 100, selectedMap === 'VOID' ? "#555" : "#00ffff", selectedMap === 'VOID' ? "#222" : "#003333"]} rotation={[0, 0, 0]} position={[0, 0.01, 0]} />
+      <gridHelper 
+        args={[
+          200, 100, 
+          selectedMap === 'VOID' ? "#555" : 
+          selectedMap === 'LAVA' ? "#ff4400" :
+          selectedMap === 'FOREST' ? "#2d5a27" :
+          selectedMap === 'ICE' ? "#00ffff" :
+          "#00ffff", 
+          selectedMap === 'VOID' ? "#222" : 
+          selectedMap === 'LAVA' ? "#331100" :
+          selectedMap === 'FOREST' ? "#051105" :
+          selectedMap === 'ICE' ? "#aaddff" :
+          "#003333"
+        ]} 
+        rotation={[0, 0, 0]} 
+        position={[0, 0.01, 0]} 
+      />
 
       {selectedMap === 'NEON' && <NeonArena />}
       {selectedMap === 'CYBER' && <CyberCity />}
       {selectedMap === 'VOID' && <VoidChamber />}
+      {selectedMap === 'LAVA' && <LavaArena />}
+      {selectedMap === 'FOREST' && <ForestArena />}
+      {selectedMap === 'ICE' && <IceArena />}
 
       <ambientLight intensity={0.5} />
       <directionalLight 

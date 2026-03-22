@@ -57,7 +57,7 @@ export const ControlsDropdown = () => {
   const controls = [
     { key: 'WASD', action: 'Move', icon: <Move size={14} /> },
     { key: 'Space', action: 'Jump', icon: <Keyboard size={14} /> },
-    { key: 'Ctrl', action: 'Slide', icon: <Keyboard size={14} /> },
+    { key: 'C', action: 'Slide', icon: <Keyboard size={14} /> },
     { key: 'Mouse', action: 'Aim', icon: <MousePointer2 size={14} /> },
     { key: 'L-Click', action: 'Shoot', icon: <Crosshair size={14} /> },
     { key: 'R-Click', action: 'ADS', icon: <Crosshair size={14} /> },

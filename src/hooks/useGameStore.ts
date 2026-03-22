@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { Vector3 } from 'three';
 import { soundManager } from '../services/SoundManager';
+import { User } from 'firebase/auth';
+import { db } from '../firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 export type WeaponType = 'PRIMARY' | 'SECONDARY' | 'MELEE';
 
@@ -18,13 +21,35 @@ export interface WeaponStats {
   isEnergy?: boolean;
   isExplosive?: boolean;
   isMelee?: boolean;
+  pelletCount?: number;
+  spread?: number;
+  range?: number;
 }
+
+export interface SkinStats {
+  id: string;
+  name: string;
+  weaponId: string;
+  color: string;
+  price: number;
+}
+
+export const SKINS: Record<string, SkinStats> = {
+  'ak47_gold': { id: 'ak47_gold', name: 'Golden AK', weaponId: 'ak47', color: '#FFD700', price: 600 },
+  'ak47_ruby': { id: 'ak47_ruby', name: 'Ruby AK', weaponId: 'ak47', color: '#E0115F', price: 300 },
+  'ak47_emerald': { id: 'ak47_emerald', name: 'Emerald AK', weaponId: 'ak47', color: '#50C878', price: 300 },
+  'pistol_silver': { id: 'pistol_silver', name: 'Silver Pistol', weaponId: 'pistol', color: '#C0C0C0', price: 150 },
+  'pistol_neon': { id: 'pistol_neon', name: 'Neon Pistol', weaponId: 'pistol', color: '#39FF14', price: 200 },
+  'shark_deep': { id: 'shark_deep', name: 'Deep Sea Shark', weaponId: 'shark', color: '#000080', price: 500 },
+  'sniper_arctic': { id: 'sniper_arctic', name: 'Arctic Sniper', weaponId: 'sniper', color: '#F0F8FF', price: 750 },
+  'katana_blood': { id: 'katana_blood', name: 'Blood Katana', weaponId: 'katana', color: '#8B0000', price: 900 },
+};
 
 export const WEAPONS: Record<string, WeaponStats> = {
   'ak47': { id: 'ak47', name: 'AK-47', type: 'PRIMARY', damage: 10, fireRate: 0.1, recoil: 0.05, magazineSize: 30, reloadTime: 2, isAutomatic: true },
-  'shark': { id: 'shark', name: 'Shark Blaster', type: 'PRIMARY', damage: 35, fireRate: 0.5, recoil: 0.03, magazineSize: 20, reloadTime: 2.5, isEnergy: true, projectileSpeed: 50 },
+  'shark': { id: 'shark', name: 'Shark Blaster', type: 'PRIMARY', damage: 35, fireRate: 0.4, recoil: 0.1, magazineSize: 20, reloadTime: 2.5, projectileSpeed: 60 },
+  'shotgun': { id: 'shotgun', name: 'Shotgun', type: 'PRIMARY', damage: 25, fireRate: 1.0, recoil: 0.25, magazineSize: 6, reloadTime: 3, pelletCount: 12, spread: 0.2, range: 12 },
   'sniper': { id: 'sniper', name: 'Sniper', type: 'PRIMARY', damage: 100, fireRate: 1.5, recoil: 0.2, magazineSize: 5, reloadTime: 3.5, projectileSpeed: 200 },
-  'candy': { id: 'candy', name: 'Candy Blaster', type: 'PRIMARY', damage: 20, fireRate: 0.5, recoil: 0.02, magazineSize: 40, reloadTime: 1.8, isEnergy: true, projectileSpeed: 40 },
   'dual': { id: 'dual', name: 'Dual Energy Blasters', type: 'SECONDARY', damage: 15, fireRate: 0.5, recoil: 0.02, magazineSize: 30, reloadTime: 1.5, isEnergy: true },
   'pistol': { id: 'pistol', name: 'Pistol', type: 'SECONDARY', damage: 20, fireRate: 0.5, recoil: 0.03, magazineSize: 12, reloadTime: 1.2 },
   'pumpkin': { id: 'pumpkin', name: 'Pumpkin Powerer', type: 'SECONDARY', damage: 60, fireRate: 1.0, recoil: 0.1, magazineSize: 3, reloadTime: 3, isExplosive: true, projectileSpeed: 30 },
@@ -33,6 +58,7 @@ export const WEAPONS: Record<string, WeaponStats> = {
   'karambit': { id: 'karambit', name: 'Karambit', type: 'MELEE', damage: 45, fireRate: 0.5, recoil: 0, magazineSize: 1, reloadTime: 0, isMelee: true },
   'radiant': { id: 'radiant', name: 'Radiant Daggers', type: 'MELEE', damage: 40, fireRate: 0.5, recoil: 0, magazineSize: 1, reloadTime: 0, isMelee: true },
   'katana': { id: 'katana', name: 'Katana', type: 'MELEE', damage: 70, fireRate: 0.7, recoil: 0, magazineSize: 1, reloadTime: 0, isMelee: true },
+  'admin_blaster': { id: 'admin_blaster', name: 'Void Annihilator', type: 'PRIMARY', damage: 9999, fireRate: 0.05, recoil: 0, magazineSize: 999, reloadTime: 0.1, isAutomatic: true, isEnergy: true, projectileSpeed: 300 },
 };
 
 export type AbilityType = 'GRAPPLE' | 'VOLT' | 'ORB' | 'KUNAI' | 'ARCANE_FIST' | 'SCYTHE' | 'SPEED' | 'REWIND' | 'SHIELD' | 'STUN';
@@ -58,6 +84,35 @@ export const ABILITIES: Record<AbilityType, AbilityStats> = {
   'STUN': { id: 'STUN', name: 'Stun Pulse', description: 'Stun nearby enemies', cooldown: 12, duration: 0.5 },
 };
 
+export const WEAPON_PRICES: Record<string, number> = {
+  'ak47': 0,
+  'pistol': 0,
+  'knife': 0,
+  'shark': 300,
+  'shotgun': 200,
+  'sniper': 500,
+  'dual': 250,
+  'pumpkin': 400,
+  'c4': 600,
+  'karambit': 100,
+  'radiant': 250,
+  'katana': 400,
+  'admin_blaster': 999999,
+};
+
+export const ABILITY_PRICES: Record<string, number> = {
+  'SPEED': 0,
+  'REWIND': 0,
+  'SHIELD': 0,
+  'GRAPPLE': 100,
+  'VOLT': 250,
+  'ORB': 400,
+  'KUNAI': 200,
+  'ARCANE_FIST': 500,
+  'SCYTHE': 350,
+  'STUN': 250,
+};
+
 export interface PlayerState {
   id: number;
   health: number;
@@ -79,14 +134,18 @@ export interface PlayerState {
   dashRequest: [number, number, number] | null;
 }
 
-export type GameMode = 'SINGLE' | 'TWO_PLAYER';
+export type GameMode = 'SINGLE' | 'TWO_PLAYER' | 'MULTIPLAYER';
 export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD';
-export type MapType = 'NEON' | 'CYBER' | 'VOID';
+export type MapType = 'NEON' | 'CYBER' | 'VOID' | 'LAVA' | 'FOREST' | 'ICE';
 
 export interface BotState {
   id: string;
+  type: 'NORMAL' | 'ELITE' | 'BOSS';
   health: number;
+  maxHealth: number;
   position: [number, number, number];
+  scale: number;
+  speed: number;
   lastDamageTime: number;
   lastScytheHit: number;
   isStunned: boolean;
@@ -108,6 +167,43 @@ interface GameStore {
   tracers: { id: string; start: [number, number, number]; end: [number, number, number] }[];
   projectiles: { id: string; position: [number, number, number]; velocity: [number, number, number]; ownerId: number; weaponId: string }[];
   isLoadoutOpen: boolean;
+  gems: number;
+  unlockedWeapons: string[];
+  unlockedAbilities: AbilityType[];
+  unlockedSkins: string[];
+  selectedSkins: Record<string, string>; // weaponId -> skinId
+  
+  // Wave System (Arenas only)
+  currentWave: number;
+  maxWaves: number;
+  waveIntermission: boolean;
+  waveIntermissionTimer: number;
+  
+  // Auth & Multiplayer
+  user: User | null;
+  isAuthReady: boolean;
+  isHost: boolean;
+  currentSessionId: string | null;
+  remotePlayers: any[];
+  arenaName: string;
+  maxPlayers: number;
+  isCreating: boolean;
+  searchTerm: string;
+  
+  setUser: (user: User | null) => void;
+  setAuthReady: (ready: boolean) => void;
+  setIsHost: (isHost: boolean) => void;
+  setSessionId: (id: string | null) => void;
+  setRemotePlayers: (players: any[]) => void;
+  setArenaName: (name: string) => void;
+  setMaxPlayers: (count: number) => void;
+  setIsCreating: (isCreating: boolean) => void;
+  setSearchTerm: (term: string) => void;
+  setMaxWaves: (count: number) => void;
+  setCurrentWave: (wave: number) => void;
+  setWaveIntermission: (active: boolean) => void;
+  setWaveIntermissionTimer: (time: number) => void;
+  syncUserStats: () => Promise<void>;
   
   setMode: (mode: GameMode) => void;
   setDifficulty: (diff: Difficulty) => void;
@@ -116,6 +212,7 @@ interface GameStore {
   startTutorial: () => void;
   resetGame: () => void;
   damagePlayer: (id: number, amount: number) => void;
+  consumeAmmo: (playerId: number, weaponId: string) => void;
   damageBot: (id: string, amount: number, sourcePlayerId: number, impactPos?: [number, number, number]) => void;
   addScore: (playerId: number, amount: number) => void;
   useAbility: (playerId: number, ability: AbilityType, direction?: [number, number, number]) => void;
@@ -138,9 +235,14 @@ interface GameStore {
   setAbility: (playerId: number, slot: number, abilityId: AbilityType) => void;
   setGrapple: (playerId: number, active: boolean, target: [number, number, number] | null) => void;
   setLoadoutOpen: (open: boolean) => void;
+  buyWeapon: (weaponId: string) => void;
+  buyAbility: (abilityId: AbilityType) => void;
+  buySkin: (skinId: string) => void;
+  setSkin: (weaponId: string, skinId: string | null) => void;
+  addGems: (amount: number) => void;
 }
 
-const LOADOUT_KEY = 'neon_arena_loadout';
+const LOADOUT_KEY = 'neon_arena_loadout_v2';
 
 const loadSavedLoadout = () => {
   try {
@@ -154,9 +256,9 @@ const loadSavedLoadout = () => {
   return null;
 };
 
-const saveLoadout = (weapons: string[], abilities: AbilityType[]) => {
+const saveLoadout = (weapons: string[], abilities: AbilityType[], gems: number, unlockedWeapons: string[], unlockedAbilities: AbilityType[], unlockedSkins: string[], selectedSkins: Record<string, string>) => {
   try {
-    localStorage.setItem(LOADOUT_KEY, JSON.stringify({ weapons, abilities }));
+    localStorage.setItem(LOADOUT_KEY, JSON.stringify({ weapons, abilities, gems, unlockedWeapons, unlockedAbilities, unlockedSkins, selectedSkins }));
   } catch (e) {
     console.error('Failed to save loadout', e);
   }
@@ -171,7 +273,7 @@ const createInitialPlayer = (id: number): PlayerState => {
     score: 0,
     currentWeaponSlot: 0,
     weapons: (id === 0 && saved?.weapons) ? saved.weapons : ['ak47', 'pistol', 'knife'],
-    ammo: { 'ak47': 30, 'pistol': 12, 'shark': 20, 'sniper': 5, 'candy': 40, 'dual': 30, 'pumpkin': 3, 'c4': 1, 'karambit': 1, 'radiant': 1, 'katana': 1 },
+    ammo: { 'ak47': 30, 'pistol': 12, 'shark': 20, 'sniper': 5, 'shotgun': 8, 'dual': 30, 'pumpkin': 3, 'c4': 1, 'karambit': 1, 'radiant': 1, 'katana': 1 },
     abilityCooldowns: {},
     activeAbilities: {},
     selectedAbilities: (id === 0 && saved?.abilities) ? saved.abilities : ['SPEED', 'REWIND', 'SHIELD'],
@@ -187,6 +289,8 @@ const createInitialPlayer = (id: number): PlayerState => {
 };
 
 export const EMPTY_ARRAY: any[] = [];
+
+const initialSaved = loadSavedLoadout();
 
 export const useGameStore = create<GameStore>((set, get) => ({
   mode: 'SINGLE',
@@ -204,6 +308,66 @@ export const useGameStore = create<GameStore>((set, get) => ({
   tracers: [],
   projectiles: [],
   isLoadoutOpen: false,
+  gems: initialSaved?.gems || 0,
+  unlockedWeapons: initialSaved?.unlockedWeapons || ['ak47', 'pistol', 'knife'],
+  unlockedAbilities: initialSaved?.unlockedAbilities || ['SPEED', 'REWIND', 'SHIELD'],
+  unlockedSkins: initialSaved?.unlockedSkins || [],
+  selectedSkins: initialSaved?.selectedSkins || {},
+
+  // Wave System
+  currentWave: 0,
+  maxWaves: 5,
+  waveIntermission: false,
+  waveIntermissionTimer: 0,
+
+  user: null,
+  isAuthReady: false,
+  isHost: false,
+  currentSessionId: null,
+  remotePlayers: [],
+  arenaName: '',
+  maxPlayers: 4,
+  isCreating: false,
+  searchTerm: '',
+  
+  setUser: (user) => set((state) => {
+    if (user?.email === 'viaankg@gmail.com') {
+      const unlocked = state.unlockedWeapons.includes('admin_blaster') 
+        ? state.unlockedWeapons 
+        : [...state.unlockedWeapons, 'admin_blaster'];
+      return { user, unlockedWeapons: unlocked };
+    }
+    return { user };
+  }),
+  setAuthReady: (isAuthReady) => set({ isAuthReady }),
+  setIsHost: (isHost) => set({ isHost }),
+  setSessionId: (currentSessionId) => set({ currentSessionId }),
+  setRemotePlayers: (remotePlayers) => set({ remotePlayers }),
+  setArenaName: (arenaName) => set({ arenaName }),
+  setMaxPlayers: (maxPlayers) => set({ maxPlayers }),
+  setIsCreating: (isCreating) => set({ isCreating }),
+  setSearchTerm: (searchTerm) => set({ searchTerm }),
+  setMaxWaves: (maxWaves) => set({ maxWaves }),
+  setCurrentWave: (currentWave) => set({ currentWave }),
+  setWaveIntermission: (waveIntermission) => set({ waveIntermission }),
+  setWaveIntermissionTimer: (waveIntermissionTimer) => set({ waveIntermissionTimer }),
+
+  syncUserStats: async () => {
+    const { user, gems, unlockedWeapons, unlockedAbilities, unlockedSkins, selectedSkins } = get();
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'users', user.uid), {
+        gems,
+        unlockedWeapons,
+        unlockedAbilities,
+        unlockedSkins,
+        selectedSkins,
+        lastUpdate: serverTimestamp()
+      }, { merge: true });
+    } catch (err) {
+      console.error('Error syncing user stats:', err);
+    }
+  },
 
   setMode: (mode) => set({ mode }),
   setDifficulty: (difficulty) => set({ difficulty }),
@@ -211,20 +375,30 @@ export const useGameStore = create<GameStore>((set, get) => ({
   
   startGame: () => set((state) => {
     const existingPlayer = state.players[0] || createInitialPlayer(0);
-    const players = state.mode === 'SINGLE' 
+    const players = (state.mode === 'SINGLE' || state.mode === 'MULTIPLAYER')
       ? [existingPlayer] 
       : [existingPlayer, createInitialPlayer(1)];
     
+    const isArena = state.mode === 'MULTIPLAYER';
+    const initialWave = isArena ? 1 : 0;
+    const botCount = isArena ? 5 : state.botCount;
+    const initialBotHealth = state.difficulty === 'HARD' ? 150 : (state.difficulty === 'MEDIUM' ? 100 : 75);
+
     return {
       gameState: 'PLAYING',
       players,
-      bots: Array.from({ length: state.botCount }).map((_, i) => {
-        const angle = (i / state.botCount) * Math.PI * 2;
+      currentWave: initialWave,
+      bots: Array.from({ length: botCount }).map((_, i) => {
+        const angle = (i / botCount) * Math.PI * 2;
         const radius = 30 + Math.random() * 20;
         return {
           id: `bot-${i}`,
-          health: 100,
+          type: 'NORMAL',
+          health: initialBotHealth,
+          maxHealth: initialBotHealth,
           position: [Math.cos(angle) * radius, 2, Math.sin(angle) * radius],
+          scale: 1.0,
+          speed: 5 * (state.difficulty === 'HARD' ? 1.2 : (state.difficulty === 'MEDIUM' ? 1.0 : 0.8)),
           lastDamageTime: 0,
           lastScytheHit: 0,
           isStunned: false
@@ -241,7 +415,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     playerPositions: {},
   })),
 
-  resetGame: () => set({ gameState: 'MENU', players: [], bots: [], playerPositions: {} }),
+  resetGame: () => set({ 
+    gameState: 'MENU', 
+    players: [], 
+    bots: [], 
+    playerPositions: {}, 
+    currentSessionId: null, 
+    isHost: false,
+    remotePlayers: []
+  }),
 
   damagePlayer: (id, amount) => set((state) => {
     const player = state.players.find(p => p.id === id);
@@ -275,6 +457,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     };
   }),
 
+  consumeAmmo: (playerId, weaponId) => set((state) => ({
+    players: state.players.map(p => p.id === playerId ? {
+      ...p,
+      ammo: { ...p.ammo, [weaponId]: (p.ammo[weaponId] || 0) - 1 }
+    } : p)
+  })),
+
   damageBot: (id, amount, sourcePlayerId, impactPos) => set((state) => {
     const bot = state.bots.find(b => b.id === id);
     if (!bot || bot.health <= 0) return state;
@@ -300,20 +489,50 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     if (newHealth <= 0) {
       soundManager.playExplosion();
+      const isArena = state.mode === 'MULTIPLAYER';
+      const difficultyGemMult = state.difficulty === 'HARD' ? 2 : (state.difficulty === 'MEDIUM' ? 1 : 0.5);
+      const gemPerKill = isArena ? Math.ceil(state.currentWave * 5 * difficultyGemMult) : (state.difficulty === 'HARD' ? 10 : (state.difficulty === 'MEDIUM' ? 5 : 2));
+      const newGemsAfterKill = state.gems + gemPerKill;
       const updatedPlayers = state.players.map(p => p.id === sourcePlayerId ? { ...p, score: p.score + 100 } : p);
       
       // Check if all bots are dead
       const allBotsDead = newBots.every(b => b.health <= 0);
       
       if (allBotsDead) {
+        if (isArena && state.currentWave < state.maxWaves) {
+          // Trigger intermission
+          const nextWave = state.currentWave + 1;
+          const waveGems = Math.ceil(nextWave * 50 * difficultyGemMult);
+          
+          // Heal all players to full
+          const healedPlayers = state.players.map(p => ({
+            ...p,
+            health: p.maxHealth
+          }));
+
+          return {
+            bots: newBots,
+            players: healedPlayers,
+            gems: newGemsAfterKill + waveGems,
+            waveIntermission: true,
+            waveIntermissionTimer: 10 // 10 second intermission
+          };
+        }
+
+        const gemReward = isArena ? Math.ceil(state.maxWaves * 200 * difficultyGemMult) : (state.difficulty === 'HARD' ? 250 : (state.difficulty === 'MEDIUM' ? 150 : 75));
+        const finalGems = newGemsAfterKill + gemReward;
+        const p0 = updatedPlayers[0];
+        saveLoadout(p0.weapons, p0.selectedAbilities, finalGems, state.unlockedWeapons, state.unlockedAbilities, state.unlockedSkins, state.selectedSkins);
+        
         return { 
           bots: newBots, 
           players: updatedPlayers,
+          gems: finalGems,
           gameState: 'VICTORY' 
         };
       }
       
-      return { bots: newBots, players: updatedPlayers };
+      return { bots: newBots, players: updatedPlayers, gems: newGemsAfterKill };
     }
 
     return newState;
@@ -520,17 +739,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // Only update if position changed significantly to reduce state updates
     const lastPos = player.positionHistory[player.positionHistory.length - 1];
     if (lastPos && 
-        Math.abs(pos[0] - lastPos[0]) < 0.001 && 
-        Math.abs(pos[1] - lastPos[1]) < 0.001 && 
-        Math.abs(pos[2] - lastPos[2]) < 0.001) {
+        Math.abs(pos[0] - lastPos[0]) < 0.01 && 
+        Math.abs(pos[1] - lastPos[1]) < 0.01 && 
+        Math.abs(pos[2] - lastPos[2]) < 0.01) {
       return state;
     }
 
     const lastGlobalPos = state.playerPositions[id];
     const globalPosChanged = !lastGlobalPos || 
-                             Math.abs(pos[0] - lastGlobalPos[0]) > 0.001 || 
-                             Math.abs(pos[1] - lastGlobalPos[1]) > 0.001 || 
-                             Math.abs(pos[2] - lastGlobalPos[2]) > 0.001;
+                             Math.abs(pos[0] - lastGlobalPos[0]) > 0.01 || 
+                             Math.abs(pos[1] - lastGlobalPos[1]) > 0.01 || 
+                             Math.abs(pos[2] - lastGlobalPos[2]) > 0.01;
 
     const newState: any = {
       players: state.players.map(p => p.id === id ? {
@@ -564,6 +783,67 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   tick: (delta) => set((state) => {
     if (state.gameState !== 'PLAYING' && state.gameState !== 'TUTORIAL') return state;
+
+    // Handle Intermission
+    if (state.waveIntermission) {
+      const newTimer = state.waveIntermissionTimer - delta;
+      if (newTimer <= 0) {
+        // Spawn next wave
+        const nextWave = state.currentWave + 1;
+        const isBossWave = nextWave === state.maxWaves;
+        const difficultyHealthMult = state.difficulty === 'HARD' ? 1.5 : (state.difficulty === 'MEDIUM' ? 1.0 : 0.75);
+        const difficultySpeedMult = state.difficulty === 'HARD' ? 1.2 : (state.difficulty === 'MEDIUM' ? 1.0 : 0.8);
+        
+        let nextBots: BotState[] = [];
+
+        if (isBossWave) {
+          // Spawn the Big Boss
+          nextBots = [{
+            id: `boss-${nextWave}`,
+            type: 'BOSS',
+            health: (1000 + (nextWave * 200)) * difficultyHealthMult,
+            maxHealth: (1000 + (nextWave * 200)) * difficultyHealthMult,
+            position: [0, 5, -40],
+            scale: 4.0,
+            speed: 3 * difficultySpeedMult,
+            lastDamageTime: 0,
+            lastScytheHit: 0,
+            isStunned: false
+          }];
+        } else {
+          const nextBotCount = 5 + (nextWave * 2);
+          nextBots = Array.from({ length: nextBotCount }).map((_, i) => {
+            const angle = (i / nextBotCount) * Math.PI * 2;
+            const radius = 30 + Math.random() * 20;
+            const isElite = Math.random() < (nextWave * 0.1); // Elites become more common
+            const botType = isElite ? 'ELITE' : 'NORMAL';
+            const baseHealth = (100 + (nextWave * 25)) * difficultyHealthMult;
+            const health = isElite ? baseHealth * 2 : baseHealth;
+            
+            return {
+              id: `bot-w${nextWave}-${i}`,
+              type: botType,
+              health: health,
+              maxHealth: health,
+              position: [Math.cos(angle) * radius, 2, Math.sin(angle) * radius],
+              scale: isElite ? 1.5 : 1.0,
+              speed: (5 + (nextWave * 0.5)) * (isElite ? 0.8 : 1.0) * difficultySpeedMult,
+              lastDamageTime: 0,
+              lastScytheHit: 0,
+              isStunned: false
+            };
+          });
+        }
+
+        return {
+          waveIntermission: false,
+          waveIntermissionTimer: 0,
+          currentWave: nextWave,
+          bots: nextBots
+        };
+      }
+      return { waveIntermissionTimer: newTimer };
+    }
 
     // Update projectiles
     let newProjectiles = state.projectiles;
@@ -713,15 +993,38 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const projectilesChanged = newProjectiles !== state.projectiles;
     const allBotsDead = nextBots.length > 0 && nextBots.every(b => b.health <= 0);
-    const victoryTriggered = allBotsDead && state.gameState === 'PLAYING';
+    const isArena = state.mode === 'MULTIPLAYER';
+    const waveTransitionTriggered = allBotsDead && isArena && state.currentWave < state.maxWaves && !state.waveIntermission;
+    const victoryTriggered = allBotsDead && !waveTransitionTriggered && state.gameState === 'PLAYING';
 
-    if (!projectilesChanged && !botsChanged && !playersChanged && !victoryTriggered) return state;
+    if (!projectilesChanged && !botsChanged && !playersChanged && !victoryTriggered && !waveTransitionTriggered) return state;
 
     const newState: any = {};
     if (projectilesChanged) newState.projectiles = newProjectiles;
     if (botsChanged) newState.bots = nextBots;
     if (playersChanged) newState.players = updatedPlayers;
-    if (victoryTriggered) newState.gameState = 'VICTORY';
+    
+    if (waveTransitionTriggered) {
+      const difficultyGemMult = state.difficulty === 'HARD' ? 2 : (state.difficulty === 'MEDIUM' ? 1 : 0.5);
+      const nextWave = state.currentWave + 1;
+      const waveGems = Math.ceil(nextWave * 50 * difficultyGemMult);
+      
+      newState.waveIntermission = true;
+      newState.waveIntermissionTimer = 10;
+      newState.gems = state.gems + waveGems;
+      newState.players = (newState.players || updatedPlayers).map((p: any) => ({
+        ...p,
+        health: p.maxHealth
+      }));
+    } else if (victoryTriggered) {
+      const difficultyGemMult = state.difficulty === 'HARD' ? 2 : (state.difficulty === 'MEDIUM' ? 1 : 0.5);
+      const gemReward = isArena ? Math.ceil(state.maxWaves * 200 * difficultyGemMult) : (state.difficulty === 'HARD' ? 250 : (state.difficulty === 'MEDIUM' ? 150 : 75));
+      newState.gems = state.gems + gemReward;
+      newState.gameState = 'VICTORY';
+      
+      const p0 = (newState.players || updatedPlayers)[0];
+      saveLoadout(p0.weapons, p0.selectedAbilities, newState.gems, state.unlockedWeapons, state.unlockedAbilities, state.unlockedSkins, state.selectedSkins);
+    }
 
     return newState;
   }),
@@ -795,7 +1098,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       newWeapons[slot] = weaponId;
       
       if (playerId === 0) {
-        saveLoadout(newWeapons, p.selectedAbilities);
+        saveLoadout(newWeapons, p.selectedAbilities, state.gems, state.unlockedWeapons, state.unlockedAbilities, state.unlockedSkins, state.selectedSkins);
       }
       
       return { 
@@ -814,7 +1117,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       newAbilities[slot] = abilityId;
       
       if (playerId === 0) {
-        saveLoadout(p.weapons, newAbilities);
+        saveLoadout(p.weapons, newAbilities, state.gems, state.unlockedWeapons, state.unlockedAbilities, state.unlockedSkins, state.selectedSkins);
       }
       
       return { 
@@ -838,5 +1141,78 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setLoadoutOpen: (isLoadoutOpen) => set((state) => {
     if (state.isLoadoutOpen === isLoadoutOpen) return state;
     return { isLoadoutOpen };
+  }),
+
+  buyWeapon: (weaponId) => set((state) => {
+    if (state.unlockedWeapons.includes(weaponId)) return state;
+    const price = WEAPON_PRICES[weaponId] || 0;
+    if (state.gems < price) return state;
+
+    const newGems = state.gems - price;
+    const newUnlocked = [...state.unlockedWeapons, weaponId];
+    
+    const p0 = state.players[0];
+    saveLoadout(p0.weapons, p0.selectedAbilities, newGems, newUnlocked, state.unlockedAbilities, state.unlockedSkins, state.selectedSkins);
+    
+    return {
+      gems: newGems,
+      unlockedWeapons: newUnlocked
+    };
+  }),
+
+  buyAbility: (abilityId) => set((state) => {
+    if (state.unlockedAbilities.includes(abilityId)) return state;
+    const price = ABILITY_PRICES[abilityId] || 0;
+    if (state.gems < price) return state;
+
+    const newGems = state.gems - price;
+    const newUnlocked = [...state.unlockedAbilities, abilityId];
+    
+    const p0 = state.players[0];
+    saveLoadout(p0.weapons, p0.selectedAbilities, newGems, state.unlockedWeapons, newUnlocked, state.unlockedSkins, state.selectedSkins);
+    
+    return {
+      gems: newGems,
+      unlockedAbilities: newUnlocked
+    };
+  }),
+
+  buySkin: (skinId) => set((state) => {
+    if (state.unlockedSkins.includes(skinId)) return state;
+    const skin = SKINS[skinId];
+    if (!skin) return state;
+    if (state.gems < skin.price) return state;
+
+    const newGems = state.gems - skin.price;
+    const newUnlocked = [...state.unlockedSkins, skinId];
+    
+    const p0 = state.players[0];
+    saveLoadout(p0.weapons, p0.selectedAbilities, newGems, state.unlockedWeapons, state.unlockedAbilities, newUnlocked, state.selectedSkins);
+    
+    return {
+      gems: newGems,
+      unlockedSkins: newUnlocked
+    };
+  }),
+
+  setSkin: (weaponId, skinId) => set((state) => {
+    const newSelected = { ...state.selectedSkins };
+    if (skinId) {
+      newSelected[weaponId] = skinId;
+    } else {
+      delete newSelected[weaponId];
+    }
+    
+    const p0 = state.players[0];
+    saveLoadout(p0.weapons, p0.selectedAbilities, state.gems, state.unlockedWeapons, state.unlockedAbilities, state.unlockedSkins, newSelected);
+    
+    return { selectedSkins: newSelected };
+  }),
+
+  addGems: (amount) => set((state) => {
+    const newGems = state.gems + amount;
+    const p0 = state.players[0];
+    saveLoadout(p0.weapons, p0.selectedAbilities, newGems, state.unlockedWeapons, state.unlockedAbilities, state.unlockedSkins, state.selectedSkins);
+    return { gems: newGems };
   }),
 }));

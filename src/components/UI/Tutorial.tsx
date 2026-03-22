@@ -6,9 +6,9 @@ import { MousePointer2, Keyboard, Zap, Target } from 'lucide-react';
 const TUTORIAL_STEPS = [
   {
     title: "Movement",
-    description: "Use WASD keys to move your operative. Press SPACE to jump and CTRL to slide.",
+    description: "Use WASD keys to move your operative. Press SPACE to jump and C to slide.",
     icon: <Keyboard className="text-cyan-400" size={32} />,
-    keys: ["W", "A", "S", "D", "SPACE", "CTRL"]
+    keys: ["W", "A", "S", "D", "SPACE", "C"]
   },
   {
     title: "Combat",
@@ -18,15 +18,15 @@ const TUTORIAL_STEPS = [
   },
   {
     title: "Arsenal",
-    description: "Switch between Primary, Secondary, and Melee weapons using 1, 2, and 3 keys. Press T to reload.",
+    description: "Switch between Primary, Secondary, and Melee weapons using 1, 2, and 3 keys. Press R to reload.",
     icon: <Zap className="text-yellow-400" size={32} />,
-    keys: ["1", "2", "3", "T"]
+    keys: ["1", "2", "3", "R"]
   },
   {
     title: "Abilities",
-    description: "Activate your tactical abilities: Q for Speed, E for Rewind, and R for Shield.",
+    description: "Activate your tactical abilities: Q, E, and F for your selected loadout.",
     icon: <Zap className="text-purple-400" size={32} />,
-    keys: ["Q", "E", "R"]
+    keys: ["Q", "E", "F"]
   }
 ];
 

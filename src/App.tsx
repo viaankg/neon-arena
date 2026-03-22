@@ -1,24 +1,31 @@
 import React, { Suspense, useState, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Physics } from '@react-three/cannon';
-import { Sky, Stars, Environment, PointerLockControls, KeyboardControls } from '@react-three/drei';
+import { Sky, Stars, Environment, PointerLockControls, KeyboardControls, useKeyboardControls } from '@react-three/drei';
+import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from './hooks/useGameStore';
 import { Arena } from './components/Arena';
 import { Player } from './components/Player';
 import { Bot } from './components/Bot';
 import { HUD } from './components/UI/HUD';
 import { Menu } from './components/UI/Menu';
+import { Auth } from './components/UI/Auth';
 import { GameOver } from './components/UI/GameOver';
 import { PointerLockOverlay } from './components/UI/PointerLockOverlay';
 import { Tutorial } from './components/UI/Tutorial';
 import { Effects } from './components/Effects';
 import { LoadoutMenu } from './components/LoadoutMenu';
-import { Settings, ShoppingBag, AlertTriangle } from 'lucide-react';
+import { Settings, ShoppingBag, AlertTriangle, Loader2 } from 'lucide-react';
 import { Selection, EffectComposer, Outline } from '@react-three/postprocessing';
 
 import { Projectiles } from './components/Projectiles';
+import { MultiplayerManager } from './components/MultiplayerManager';
+import { RemotePlayer } from './components/RemotePlayer';
 import { GrappleVisuals } from './components/GrappleVisuals';
 import { AbilityVisuals } from './components/AbilityVisuals';
+import { auth, db } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: any) {
@@ -55,8 +62,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 }
 
 const Bots = ({ difficulty }: { difficulty: any }) => {
-  const botIdsString = useGameStore(state => state.bots.map(b => b.id).join(','));
-  const botIds = React.useMemo(() => botIdsString.split(',').filter(Boolean), [botIdsString]);
+  const botIds = useGameStore(useShallow(state => state.bots.map(b => b.id)));
   
   return (
     <>
@@ -67,8 +73,9 @@ const Bots = ({ difficulty }: { difficulty: any }) => {
   );
 };
 
-const GameScene = React.memo(({ playerId, viewport, isLoadoutOpen }: { playerId: number, viewport: any, isLoadoutOpen: boolean }) => {
+const GameScene = React.memo(({ playerId, viewport, isLoadoutOpen, isPrimary }: { playerId: number, viewport: any, isLoadoutOpen: boolean, isPrimary: boolean }) => {
   const difficulty = useGameStore(state => state.difficulty);
+  const remotePlayers = useGameStore(state => state.remotePlayers);
   
   const initialPos = React.useMemo(() => [playerId === 0 ? 20 : -20, 5, playerId === 0 ? 20 : -20] as [number, number, number], [playerId]);
   
@@ -84,7 +91,7 @@ const GameScene = React.memo(({ playerId, viewport, isLoadoutOpen }: { playerId:
         <Suspense fallback={null}>
           <Environment preset="night" />
         </Suspense>
-
+ 
         <Suspense fallback={
           <mesh>
             <boxGeometry args={[1, 1, 1]} />
@@ -104,7 +111,7 @@ const GameScene = React.memo(({ playerId, viewport, isLoadoutOpen }: { playerId:
                 />
               </EffectComposer>
               
-              <Arena />
+              <Arena isPrimary={isPrimary} />
               <Effects />
               <Projectiles />
               <GrappleVisuals />
@@ -116,6 +123,11 @@ const GameScene = React.memo(({ playerId, viewport, isLoadoutOpen }: { playerId:
               />
               
               <Bots difficulty={difficulty} />
+              
+              {/* Remote Players */}
+              {remotePlayers.map((p) => (
+                <RemotePlayer key={p.uid} data={p} />
+              ))}
             </Selection>
           </Physics>
         </Suspense>
@@ -125,6 +137,29 @@ const GameScene = React.memo(({ playerId, viewport, isLoadoutOpen }: { playerId:
   );
 });
 
+const GlobalInputHandler = ({ toggleLoadout }: { toggleLoadout: () => void }) => {
+  const isLoadoutOpen = useGameStore(state => state.isLoadoutOpen);
+  const setLoadoutOpen = useGameStore(state => state.setLoadoutOpen);
+  const [, getKeys] = useKeyboardControls();
+
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'KeyB') {
+        e.preventDefault();
+        toggleLoadout();
+      }
+      if (e.code === 'Escape' && isLoadoutOpen) {
+        e.preventDefault();
+        setLoadoutOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [isLoadoutOpen, toggleLoadout, setLoadoutOpen]);
+
+  return null;
+};
+
 export default function App() {
   const gameState = useGameStore(state => state.gameState);
   const mode = useGameStore(state => state.mode);
@@ -132,6 +167,43 @@ export default function App() {
   const playerIds = React.useMemo(() => playerIdsString.split(',').filter(Boolean).map(Number), [playerIdsString]);
   const isLoadoutOpen = useGameStore(state => state.isLoadoutOpen);
   const setLoadoutOpen = useGameStore(state => state.setLoadoutOpen);
+  
+  const user = useGameStore(state => state.user);
+  const isAuthReady = useGameStore(state => state.isAuthReady);
+  const setUser = useGameStore(state => state.setUser);
+  const setAuthReady = useGameStore(state => state.setAuthReady);
+
+  React.useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setUser(firebaseUser);
+      setAuthReady(true);
+      
+      if (firebaseUser) {
+        // Load user data from Firestore
+        try {
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            // Sync store with Firestore data if needed
+            // For now just keep the user object
+          }
+        } catch (err) {
+          console.error('Error loading user data:', err);
+        }
+      }
+    });
+    return unsubscribe;
+  }, [setUser, setAuthReady]);
+
+  const toggleLoadout = React.useCallback(() => {
+    const nextState = !isLoadoutOpen;
+    setLoadoutOpen(nextState);
+    if (nextState) {
+      if (document.pointerLockElement) {
+        document.exitPointerLock();
+      }
+    }
+  }, [isLoadoutOpen, setLoadoutOpen]);
 
   const viewports = React.useMemo(() => {
     return playerIds.map((_, i) => 
@@ -140,16 +212,6 @@ export default function App() {
         : { left: 0, top: 0, width: 1, height: 1 }
     );
   }, [playerIds, mode]);
-
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'KeyB') {
-        setLoadoutOpen(!isLoadoutOpen);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isLoadoutOpen, setLoadoutOpen]);
 
   return (
     <KeyboardControls map={[
@@ -161,16 +223,26 @@ export default function App() {
       { name: 'ability1', keys: ['KeyQ'] },
       { name: 'ability2', keys: ['KeyE'] },
       { name: 'ability3', keys: ['KeyF'] },
-      { name: 'ability4', keys: ['KeyC'] },
+      { name: 'ability4', keys: ['KeyX'] },
       { name: 'reload', keys: ['KeyR'] },
       { name: 'weapon1', keys: ['Digit1'] },
       { name: 'weapon2', keys: ['Digit2'] },
       { name: 'weapon3', keys: ['Digit3'] },
       { name: 'loadout', keys: ['KeyB'] },
-      { name: 'slide', keys: ['ShiftLeft', 'ControlLeft'] },
+      { name: 'slide', keys: ['KeyC', 'ShiftLeft'] },
     ]}>
       <ErrorBoundary>
-        <div className="h-screen w-screen bg-black text-white overflow-hidden select-none">
+        {!isAuthReady ? (
+          <div className="h-screen w-screen bg-black flex items-center justify-center">
+            <Loader2 className="animate-spin text-emerald-500" size={48} />
+          </div>
+        ) : !user ? (
+          <Auth />
+        ) : (
+          <>
+            <MultiplayerManager />
+            <GlobalInputHandler toggleLoadout={toggleLoadout} />
+            <div className="h-screen w-screen bg-black text-white overflow-hidden select-none">
           {gameState === 'MENU' ? (
             <Menu />
           ) : (
@@ -181,6 +253,7 @@ export default function App() {
                   playerId={id} 
                   viewport={viewports[i]} 
                   isLoadoutOpen={isLoadoutOpen}
+                  isPrimary={i === 0}
                 />
               ))}
             </div>
@@ -197,20 +270,27 @@ export default function App() {
           {/* Global Instructions Overlay */}
           {gameState === 'PLAYING' && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-none text-[10px] uppercase tracking-[0.4em] text-white/30 text-center">
-              WASD Move • Shift Slide • Mouse Aim • Click Shoot • R Reload • Q/E/F Abilities • 1-3 Switch • B Loadout • M Controls
+              WASD Move • C Slide • Mouse Aim • Click Shoot • R Reload • Q/E/F Abilities • 1-3 Switch • B Loadout • M Controls
             </div>
           )}
   
+
           {/* Loadout Toggle Button */}
-          {gameState === 'PLAYING' && (
+          {(gameState === 'PLAYING' || gameState === 'TUTORIAL') && (
             <button
-              onClick={() => setLoadoutOpen(true)}
-              className="absolute bottom-8 left-8 w-14 h-14 bg-white/10 hover:bg-white/20 backdrop-blur-xl border border-white/10 rounded-2xl flex items-center justify-center text-white transition-all hover:scale-110 active:scale-95 z-50"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleLoadout();
+              }}
+              className="absolute bottom-24 left-8 w-14 h-14 bg-white/10 hover:bg-white/20 backdrop-blur-xl border border-white/10 rounded-2xl flex items-center justify-center text-white transition-all hover:scale-110 active:scale-95 z-[110]"
+              title="Open Loadout (B)"
             >
               <ShoppingBag size={24} />
             </button>
           )}
         </div>
+          </>
+        )}
       </ErrorBoundary>
     </KeyboardControls>
   );

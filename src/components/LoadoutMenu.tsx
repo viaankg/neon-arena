@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { useGameStore, WEAPONS, WeaponType, ABILITIES, AbilityType } from '../hooks/useGameStore';
+import { useGameStore, WEAPONS, WeaponType, ABILITIES, AbilityType, WEAPON_PRICES, ABILITY_PRICES, SKINS } from '../hooks/useGameStore';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Sword, Crosshair, Shield, Zap } from 'lucide-react';
+import { X, Sword, Crosshair, Shield, Zap, Gem, Lock, Palette } from 'lucide-react';
 
 interface LoadoutMenuProps {
   isOpen: boolean;
@@ -9,14 +9,14 @@ interface LoadoutMenuProps {
 }
 
 export const LoadoutMenu: React.FC<LoadoutMenuProps> = ({ isOpen, onClose }) => {
-  const { players, setWeapon, setAbility } = useGameStore();
+  const { players, gems, unlockedWeapons, unlockedAbilities, unlockedSkins, selectedSkins, setWeapon, setAbility, buyWeapon, buyAbility, buySkin, setSkin, syncUserStats } = useGameStore();
   const player = players[0]; // Assume single player for now
-  const [activeTab, setActiveTab] = useState<'WEAPONS' | 'ABILITIES'>('WEAPONS');
+  const [activeTab, setActiveTab] = useState<'WEAPONS' | 'ABILITIES' | 'SKINS'>('WEAPONS');
 
   if (!player) return null;
 
   const renderWeaponCategory = (type: WeaponType, slot: number) => {
-    const categoryWeapons = Object.values(WEAPONS).filter(w => w.type === type);
+    const categoryWeapons = Object.values(WEAPONS).filter(w => w.type === type && (w.id !== 'admin_blaster' || unlockedWeapons.includes('admin_blaster')));
     const currentWeaponId = player.weapons[slot];
 
     return (
@@ -28,31 +28,64 @@ export const LoadoutMenu: React.FC<LoadoutMenuProps> = ({ isOpen, onClose }) => 
           {type}
         </h3>
         <div className="grid grid-cols-1 gap-2">
-          {categoryWeapons.map(weapon => (
-            <button
-              key={weapon.id}
-              onClick={() => setWeapon(player.id, slot, weapon.id)}
-              className={`p-4 rounded-xl border transition-all text-left group ${
-                currentWeaponId === weapon.id
-                  ? 'bg-white text-black border-white'
-                  : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
-              }`}
-            >
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="font-bold text-sm tracking-tight">{weapon.name}</div>
-                  <div className={`text-[10px] uppercase tracking-wider mt-1 ${
-                    currentWeaponId === weapon.id ? 'text-black/60' : 'text-white/40'
-                  }`}>
-                    DMG: {weapon.damage} • MAG: {weapon.magazineSize}
+          {categoryWeapons.map(weapon => {
+            const isUnlocked = unlockedWeapons.includes(weapon.id);
+            const price = WEAPON_PRICES[weapon.id] || 0;
+            const canAfford = gems >= price;
+
+            return (
+              <div key={weapon.id} className="relative group">
+                <button
+                  disabled={!isUnlocked}
+                  onClick={() => {
+                    setWeapon(player.id, slot, weapon.id);
+                    syncUserStats();
+                  }}
+                  className={`w-full p-4 rounded-xl border transition-all text-left flex justify-between items-start ${
+                    currentWeaponId === weapon.id
+                      ? 'bg-white text-black border-white'
+                      : isUnlocked
+                        ? 'bg-white/5 text-white border-white/10 hover:bg-white/10'
+                        : 'bg-white/2 text-white/20 border-white/5 cursor-not-allowed'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <div className="font-bold text-sm tracking-tight">{weapon.name}</div>
+                      {!isUnlocked && <Lock size={10} className="text-white/20" />}
+                    </div>
+                    <div className={`text-[10px] uppercase tracking-wider mt-1 ${
+                      currentWeaponId === weapon.id ? 'text-black/60' : 'text-white/40'
+                    }`}>
+                      DMG: {weapon.damage} • MAG: {weapon.magazineSize}
+                    </div>
                   </div>
-                </div>
-                {currentWeaponId === weapon.id && (
-                  <div className="w-2 h-2 rounded-full bg-black animate-pulse" />
+                  {currentWeaponId === weapon.id && (
+                    <div className="w-2 h-2 rounded-full bg-black animate-pulse mt-2" />
+                  )}
+                </button>
+
+                {!isUnlocked && (
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      buyWeapon(weapon.id);
+                      syncUserStats();
+                    }}
+                    disabled={!canAfford}
+                    className={`absolute right-2 top-1/2 -translate-y-1/2 px-3 py-2 rounded-lg flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest transition-all ${
+                      canAfford 
+                        ? 'bg-emerald-500 text-white hover:bg-emerald-400' 
+                        : 'bg-white/5 text-white/20 cursor-not-allowed'
+                    }`}
+                  >
+                    <Gem size={12} />
+                    {price}
+                  </button>
                 )}
               </div>
-            </button>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -70,23 +103,34 @@ export const LoadoutMenu: React.FC<LoadoutMenuProps> = ({ isOpen, onClose }) => 
         </h3>
         <div className="grid grid-cols-1 gap-2">
           {allAbilities.map(ability => {
+            const isUnlocked = unlockedAbilities.includes(ability.id);
             const isSelectedInOtherSlot = player.selectedAbilities.some((a, i) => a === ability.id && i !== slot);
+            const price = ABILITY_PRICES[ability.id] || 0;
+            const canAfford = gems >= price;
+
             return (
-              <button
-                key={ability.id}
-                disabled={isSelectedInOtherSlot}
-                onClick={() => setAbility(player.id, slot, ability.id)}
-                className={`p-4 rounded-xl border transition-all text-left group ${
-                  currentAbilityId === ability.id
-                    ? 'bg-cyan-500 text-black border-cyan-400'
-                    : isSelectedInOtherSlot 
-                      ? 'bg-white/2 opacity-20 cursor-not-allowed border-transparent'
-                      : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
-                }`}
-              >
-                <div className="flex justify-between items-start">
+              <div key={ability.id} className="relative group">
+                <button
+                  disabled={isSelectedInOtherSlot || !isUnlocked}
+                  onClick={() => {
+                    setAbility(player.id, slot, ability.id);
+                    syncUserStats();
+                  }}
+                  className={`w-full p-4 rounded-xl border transition-all text-left flex justify-between items-start ${
+                    currentAbilityId === ability.id
+                      ? 'bg-cyan-500 text-black border-cyan-400'
+                      : isSelectedInOtherSlot 
+                        ? 'bg-white/2 opacity-20 cursor-not-allowed border-transparent'
+                        : isUnlocked
+                          ? 'bg-white/5 text-white border-white/10 hover:bg-white/10'
+                          : 'bg-white/2 text-white/20 border-white/5 cursor-not-allowed'
+                  }`}
+                >
                   <div>
-                    <div className="font-bold text-sm tracking-tight">{ability.name}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="font-bold text-sm tracking-tight">{ability.name}</div>
+                      {!isUnlocked && <Lock size={10} className="text-white/20" />}
+                    </div>
                     <div className={`text-[10px] uppercase tracking-wider mt-1 ${
                       currentAbilityId === ability.id ? 'text-black/60' : 'text-white/40'
                     }`}>
@@ -94,13 +138,123 @@ export const LoadoutMenu: React.FC<LoadoutMenuProps> = ({ isOpen, onClose }) => 
                     </div>
                   </div>
                   {currentAbilityId === ability.id && (
-                    <div className="w-2 h-2 rounded-full bg-black animate-pulse" />
+                    <div className="w-2 h-2 rounded-full bg-black animate-pulse mt-2" />
                   )}
-                </div>
-              </button>
+                </button>
+
+                {!isUnlocked && (
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      buyAbility(ability.id);
+                      syncUserStats();
+                    }}
+                    disabled={!canAfford}
+                    className={`absolute right-2 top-1/2 -translate-y-1/2 px-3 py-2 rounded-lg flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest transition-all ${
+                      canAfford 
+                        ? 'bg-emerald-500 text-white hover:bg-emerald-400' 
+                        : 'bg-white/5 text-white/20 cursor-not-allowed'
+                    }`}
+                  >
+                    <Gem size={12} />
+                    {price}
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
+      </div>
+    );
+  };
+
+  const renderSkins = () => {
+    const allSkins = Object.values(SKINS);
+    
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {Object.values(WEAPONS).map(weapon => {
+          const weaponSkins = allSkins.filter(s => s.weaponId === weapon.id);
+          const currentSkinId = selectedSkins[weapon.id];
+
+          return (
+            <div key={weapon.id} className="space-y-4 bg-white/5 p-6 rounded-2xl border border-white/10">
+              <h3 className="text-sm font-bold uppercase tracking-widest text-white/60 flex items-center gap-2">
+                {weapon.name}
+              </h3>
+              
+              <div className="space-y-2">
+                {/* Default Skin */}
+                <button
+                  onClick={() => {
+                    setSkin(weapon.id, null);
+                    syncUserStats();
+                  }}
+                  className={`w-full p-3 rounded-xl border text-left text-xs transition-all flex justify-between items-center ${
+                    !currentSkinId 
+                      ? 'bg-white text-black border-white' 
+                      : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
+                  }`}
+                >
+                  <span>Default Skin</span>
+                  {!currentSkinId && <div className="w-1.5 h-1.5 rounded-full bg-black" />}
+                </button>
+
+                {/* Custom Skins */}
+                {weaponSkins.map(skin => {
+                  const isUnlocked = unlockedSkins.includes(skin.id);
+                  const isSelected = currentSkinId === skin.id;
+                  const canAfford = gems >= skin.price;
+
+                  return (
+                    <div key={skin.id} className="relative">
+                      <button
+                        disabled={!isUnlocked}
+                        onClick={() => {
+                          setSkin(weapon.id, skin.id);
+                          syncUserStats();
+                        }}
+                        className={`w-full p-3 rounded-xl border text-left text-xs transition-all flex justify-between items-center ${
+                          isSelected
+                            ? 'bg-white text-black border-white'
+                            : isUnlocked
+                              ? 'bg-white/5 text-white border-white/10 hover:bg-white/10'
+                              : 'bg-white/2 text-white/20 border-white/5 cursor-not-allowed'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full border border-white/20" style={{ backgroundColor: skin.color }} />
+                          <span>{skin.name}</span>
+                          {!isUnlocked && <Lock size={10} className="text-white/20" />}
+                        </div>
+                        {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-black" />}
+                      </button>
+
+                      {!isUnlocked && (
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            buySkin(skin.id);
+                            syncUserStats();
+                          }}
+                          disabled={!canAfford}
+                          className={`absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1.5 rounded-lg flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-widest transition-all ${
+                            canAfford 
+                              ? 'bg-emerald-500 text-white hover:bg-emerald-400' 
+                              : 'bg-white/5 text-white/20 cursor-not-allowed'
+                          }`}
+                        >
+                          <Gem size={10} />
+                          {skin.price}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -112,7 +266,7 @@ export const LoadoutMenu: React.FC<LoadoutMenuProps> = ({ isOpen, onClose }) => 
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-xl p-8"
+          className="fixed inset-0 z-[999] flex items-center justify-center bg-black/80 backdrop-blur-xl p-8"
         >
           <motion.div
             initial={{ scale: 0.9, y: 20 }}
@@ -140,14 +294,30 @@ export const LoadoutMenu: React.FC<LoadoutMenuProps> = ({ isOpen, onClose }) => 
                   >
                     Abilities
                   </button>
+                  <button 
+                    onClick={() => setActiveTab('SKINS')}
+                    className={`px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${activeTab === 'SKINS' ? 'bg-white text-black' : 'text-white/40 hover:text-white'}`}
+                  >
+                    Skins
+                  </button>
                 </div>
               </div>
-              <button
-                onClick={onClose}
-                className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
-              >
-                <X size={24} />
-              </button>
+
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 px-6 py-3 rounded-2xl">
+                  <Gem size={20} className="text-emerald-400" />
+                  <div className="flex flex-col">
+                    <span className="text-emerald-400 font-bold text-xl leading-none">{gems}</span>
+                    <span className="text-emerald-400/40 text-[8px] uppercase tracking-widest font-bold">Gems</span>
+                  </div>
+                </div>
+                <button
+                  onClick={onClose}
+                  className="w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+                >
+                  <X size={24} />
+                </button>
+              </div>
             </div>
 
             {/* Content */}
@@ -158,12 +328,14 @@ export const LoadoutMenu: React.FC<LoadoutMenuProps> = ({ isOpen, onClose }) => 
                   {renderWeaponCategory('SECONDARY', 1)}
                   {renderWeaponCategory('MELEE', 2)}
                 </div>
-              ) : (
+              ) : activeTab === 'ABILITIES' ? (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                   {renderAbilitySlot(0)}
                   {renderAbilitySlot(1)}
                   {renderAbilitySlot(2)}
                 </div>
+              ) : (
+                renderSkins()
               )}
             </div>
 

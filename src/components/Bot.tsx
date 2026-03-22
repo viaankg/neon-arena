@@ -4,6 +4,7 @@ import { useSphere } from '@react-three/cannon';
 import { Vector3 } from 'three';
 import { Billboard } from '@react-three/drei';
 import { Select } from '@react-three/postprocessing';
+import { useShallow } from 'zustand/react/shallow';
 import { useGameStore } from '../hooks/useGameStore';
 
 interface BotProps {
@@ -12,17 +13,24 @@ interface BotProps {
 }
 
 export const Bot: React.FC<BotProps> = ({ id, difficulty }) => {
-  const health = useGameStore(state => state.bots.find(b => b.id === id)?.health);
-  const isStunned = useGameStore(state => state.bots.find(b => b.id === id)?.isStunned);
-  const initialPosition = useGameStore(state => state.bots.find(b => b.id === id)?.position);
+  const bot = useGameStore(state => state.bots.find(b => b.id === id));
+  const health = bot?.health;
+  const maxHealth = bot?.maxHealth || 100;
+  const isStunned = bot?.isStunned;
+  const botType = bot?.type || 'NORMAL';
+  const botScale = bot?.scale || 1.0;
+  const botSpeed = bot?.speed || 5;
+
+  // Get initial position once, non-reactively
+  const initialPosition = useRef(bot?.position);
   
   const damagePlayer = useGameStore(state => state.damagePlayer);
   const updateBotPosition = useGameStore(state => state.updateBotPosition);
   
   const [ref, api] = useSphere(() => ({
-    mass: 1,
-    position: initialPosition || [0, 2, 0],
-    args: [0.6],
+    mass: botType === 'BOSS' ? 10 : 1,
+    position: initialPosition.current || [0, 2, 0],
+    args: [0.6 * botScale],
     type: 'Dynamic',
   }));
 
@@ -31,6 +39,12 @@ export const Bot: React.FC<BotProps> = ({ id, difficulty }) => {
 
   const pos = useRef([0, 0, 0]);
   useEffect(() => api.position.subscribe(p => {
+    // Only update if position changed significantly
+    if (Math.abs(p[0] - pos.current[0]) < 0.01 && 
+        Math.abs(p[1] - pos.current[1]) < 0.01 && 
+        Math.abs(p[2] - pos.current[2]) < 0.01) {
+      return;
+    }
     pos.current = p;
     updateBotPosition(id, p);
   }), [api.position, id, updateBotPosition]);
@@ -68,20 +82,19 @@ export const Bot: React.FC<BotProps> = ({ id, difficulty }) => {
       
       // Move towards player
       const dir = new Vector3().subVectors(targetPos, currentPos).normalize();
-      const speed = difficulty === 'HARD' ? 4 : 2;
-      finalVelocity.set(dir.x * speed, 0, dir.z * speed);
+      finalVelocity.set(dir.x * botSpeed, 0, dir.z * botSpeed);
 
       // Shoot
       const now = state.clock.getElapsedTime();
-      const fireRate = difficulty === 'EASY' ? 3 : difficulty === 'MEDIUM' ? 2 : 1;
+      const fireRate = botType === 'BOSS' ? 0.5 : (difficulty === 'EASY' ? 3 : difficulty === 'MEDIUM' ? 2 : 1);
       if (now - lastShotTime.current > fireRate) {
         lastShotTime.current = now;
         
         // Visual tracer for bot shot
-        const gunPos = new Vector3(0.4, -0.2, -0.4).applyMatrix4(ref.current!.matrixWorld);
+        const gunPos = new Vector3(0.4 * botScale, -0.2 * botScale, -0.4 * botScale).applyMatrix4(ref.current!.matrixWorld);
         const targetPos = new Vector3(...playerPositions[nearestPlayerId]);
         // Add some inaccuracy
-        const inaccuracy = difficulty === 'EASY' ? 3 : difficulty === 'MEDIUM' ? 2 : 1;
+        const inaccuracy = botType === 'BOSS' ? 1 : (difficulty === 'EASY' ? 3 : difficulty === 'MEDIUM' ? 2 : 1);
         const hitPos = [
           targetPos.x + (Math.random() - 0.5) * inaccuracy,
           targetPos.y + (Math.random() - 0.5) * inaccuracy,
@@ -91,7 +104,7 @@ export const Bot: React.FC<BotProps> = ({ id, difficulty }) => {
         useGameStore.getState().addTracer([gunPos.x, gunPos.y, gunPos.z], hitPos);
 
         if (Math.random() > (difficulty === 'EASY' ? 0.9 : difficulty === 'MEDIUM' ? 0.7 : 0.4)) {
-           damagePlayer(nearestPlayerId, 5);
+           damagePlayer(nearestPlayerId, botType === 'BOSS' ? 15 : 5);
         }
       }
     } else {
@@ -120,40 +133,42 @@ export const Bot: React.FC<BotProps> = ({ id, difficulty }) => {
 
   if (health === undefined || health <= 0) return null;
   
+  const botColor = isStunned ? "yellow" : (botType === 'BOSS' ? "#FF00FF" : (botType === 'ELITE' ? "#FFA500" : "red"));
+  
   return (
-    <Select enabled>
+    <group userData={{ botId: id }}>
       <mesh ref={ref as any} name="bot" userData={{ botId: id }}>
-        <sphereGeometry args={[0.6]} />
+        <sphereGeometry args={[0.6 * botScale]} />
         <meshStandardMaterial 
-          color={isStunned ? "yellow" : "red"} 
-          emissive={isStunned ? "yellow" : "red"} 
-          emissiveIntensity={0.5} 
+          color={botColor} 
+          emissive={botColor} 
+          emissiveIntensity={botType === 'BOSS' ? 1.0 : 0.5} 
         />
         {/* Health Bar Billboard */}
-        <Billboard position={[0, 1.2, 0]}>
-          <mesh scale={[(health || 0) / 100, 1, 1]}>
-            <boxGeometry args={[1, 0.1, 0.01]} />
-            <meshStandardMaterial color="lime" />
+        <Billboard position={[0, 1.2 * botScale, 0]} userData={{ botId: id }}>
+          <mesh scale={[(health || 0) / maxHealth, 1, 1]} position={[-(1 - (health || 0) / maxHealth) / 2, 0, 0]} userData={{ botId: id }}>
+            <boxGeometry args={[1 * botScale, 0.1 * botScale, 0.01]} />
+            <meshStandardMaterial color={botType === 'BOSS' ? "#FF00FF" : "lime"} />
           </mesh>
-          <mesh position={[0, 0, -0.01]}>
-            <boxGeometry args={[1.05, 0.15, 0.01]} />
+          <mesh position={[0, 0, -0.01]} userData={{ botId: id }}>
+            <boxGeometry args={[1.05 * botScale, 0.15 * botScale, 0.01]} />
             <meshStandardMaterial color="black" transparent opacity={0.5} />
           </mesh>
         </Billboard>
   
         {/* Bot Gun */}
-        <group position={[0.4, -0.2, -0.4]} rotation={[0, 0, 0]}>
+        <group position={[0.4 * botScale, -0.2 * botScale, -0.4 * botScale]} rotation={[0, 0, 0]}>
           <mesh castShadow>
-            <boxGeometry args={[0.1, 0.15, 0.5]} />
+            <boxGeometry args={[0.1 * botScale, 0.15 * botScale, 0.5 * botScale]} />
             <meshStandardMaterial color="#333" />
           </mesh>
-          <mesh position={[0, 0, -0.3]}>
-            <boxGeometry args={[0.05, 0.05, 0.4]} />
+          <mesh position={[0, 0, -0.3 * botScale]}>
+            <boxGeometry args={[0.05 * botScale, 0.05 * botScale, 0.4 * botScale]} />
             <meshStandardMaterial color="#111" />
           </mesh>
         </group>
       </mesh>
-    </Select>
+    </group>
   );
 };
 

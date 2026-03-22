@@ -42,6 +42,7 @@ export const Player: React.FC<PlayerProps> = ({ playerId, position, viewport }) 
   const setSliding = useGameStore(state => state.setSliding);
   const useAbility = useGameStore(state => state.useAbility);
   const addProjectile = useGameStore(state => state.addProjectile);
+  const consumeAmmo = useGameStore(state => state.consumeAmmo);
   const triggerMuzzleFlash = useGameStore(state => state.triggerMuzzleFlash);
   const triggerHitMarker = useGameStore(state => state.triggerHitMarker);
   const damageBot = useGameStore(state => state.damageBot);
@@ -94,6 +95,7 @@ export const Player: React.FC<PlayerProps> = ({ playerId, position, viewport }) 
   // Handle Rewind Teleport
   useEffect(() => {
     if (isRewindActive) {
+      // Use the current value of rewindPos when the ability is activated
       const targetPos = rewindPos;
       if (targetPos && Date.now() - lastRewindTime.current > 1000) {
         api.position.set(targetPos[0], targetPos[1], targetPos[2]);
@@ -101,7 +103,9 @@ export const Player: React.FC<PlayerProps> = ({ playerId, position, viewport }) 
         lastRewindTime.current = Date.now();
       }
     }
-  }, [isRewindActive, rewindPos, api.position, api.velocity]);
+    // We only want this to run when isRewindActive changes to true
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRewindActive, api.position, api.velocity]);
 
   const moveState = useRef({ forward: false, backward: false, left: false, right: false, jump: false, shooting: false });
   const lastShotTime = useRef(0);
@@ -286,116 +290,207 @@ export const Player: React.FC<PlayerProps> = ({ playerId, position, viewport }) 
         reloadWeapon(playerId);
       }
 
-      if (now - lastShotTime.current > weapon.fireRate && hasAmmo && !isReloading) {
-        lastShotTime.current = now;
-        
-        if (weapon.id === 'shark') {
-          const gunPos = new Vector3(0.3, -0.3, -0.5).applyMatrix4(camera.matrixWorld);
-          const direction = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-          const velocity = direction.multiplyScalar(weapon.projectileSpeed || 50);
+        if (now - lastShotTime.current > weapon.fireRate && hasAmmo && !isReloading) {
+          lastShotTime.current = now;
           
-          useGameStore.getState().addProjectile({
-            position: [gunPos.x, gunPos.y, gunPos.z],
-            velocity: [velocity.x, velocity.y, velocity.z],
-            ownerId: playerId,
-            weaponId: weapon.id
-          });
-        } else if (weapon.isMelee) {
-          soundManager.playMelee();
-        } else {
-          triggerMuzzleFlash(playerId);
-          soundManager.playShoot();
-          recoilOffset.current = weapon.recoil;
-          
-          // Consume ammo
-          useGameStore.setState((s) => ({
-            players: s.players.map(p => p.id === playerId ? {
-              ...p,
-              ammo: { ...p.ammo, [weapon.id]: (p.ammo[weapon.id] || 0) - 1 }
-            } : p)
-          }));
-        }
-
-        // Raycast shooting (only for non-projectile weapons)
-        if (weapon.id !== 'shark') {
-          const currentCamera = state.camera;
-          if (currentCamera) {
-            // Fix for LineSegments2 raycasting error
-            (raycaster.current as any).camera = currentCamera;
-            raycaster.current.setFromCamera(new Vector2(0, 0), currentCamera);
+          if (weapon.id === 'shark') {
+            const gunPos = new Vector3(0.3, -0.3, -0.5).applyMatrix4(camera.matrixWorld);
+            const direction = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            const velocity = direction.multiplyScalar(weapon.projectileSpeed || 50);
             
-            // Filter out the player's own mesh and effects/tracers
-            const intersects = raycaster.current.intersectObjects(scene.children, true)
-              .filter(i => {
+            addProjectile({
+              position: [gunPos.x, gunPos.y, gunPos.z],
+              velocity: [velocity.x, velocity.y, velocity.z],
+              ownerId: playerId,
+              weaponId: weapon.id
+            });
+            
+            triggerMuzzleFlash(playerId);
+            soundManager.playShoot();
+            recoilOffset.current = weapon.recoil;
+            consumeAmmo(playerId, weapon.id);
+          } else if (weapon.id === 'shotgun') {
+            triggerMuzzleFlash(playerId);
+            soundManager.playShoot();
+            recoilOffset.current = weapon.recoil;
+            consumeAmmo(playerId, weapon.id);
+            
+            const pelletCount = weapon.pelletCount || 8;
+            const spread = weapon.spread || 0.15;
+            const gunPos = new Vector3(0.3, -0.3, -0.5).applyMatrix4(camera.matrixWorld);
+
+            for (let i = 0; i < pelletCount; i++) {
+              const currentCamera = state.camera;
+              if (!currentCamera) continue;
+
+              const spreadVec = new Vector3(
+                (Math.random() - 0.5) * spread,
+                (Math.random() - 0.5) * spread,
+                (Math.random() - 0.5) * spread
+              );
+              
+              const rayDirection = new Vector3(0, 0, -1).applyQuaternion(currentCamera.quaternion).add(spreadVec).normalize();
+              raycaster.current.set(currentCamera.position, rayDirection);
+              
+              const intersects = raycaster.current.intersectObjects(scene.children, true)
+                .filter(i => {
+                  let obj = i.object;
+                  if (obj.type === 'Line2' || obj.type === 'LineSegments2' || obj.name === 'tracer' || obj.name === 'impact') return false;
+                  
+                  let current = obj;
+                  while (current) {
+                    if (current.userData?.playerId === playerId) return false;
+                    current = current.parent as any;
+                  }
+                  return true;
+                });
+              
+              const maxRange = weapon.range || 15;
+              const validIntersects = intersects.filter(i => i.distance <= maxRange);
+
+              const botHit = validIntersects.find(i => {
                 let obj = i.object;
-                // Skip tracers and impacts
-                if (obj.type === 'Line2' || obj.type === 'LineSegments2' || obj.name === 'tracer' || obj.name === 'impact') return false;
-                
                 while (obj) {
-                  if (obj.userData?.playerId === playerId) return false;
+                  if (obj.userData?.botId) return true;
                   obj = obj.parent as any;
                 }
-                return true;
+                return false;
               });
-            
-            // Melee has limited range
-            const maxRange = weapon.isMelee ? 3 : 100;
-            const validIntersects = intersects.filter(i => i.distance <= maxRange);
 
-            const botHit = validIntersects.find(i => {
-              let obj = i.object;
-              while (obj) {
-                if (obj.userData?.botId) return true;
-                obj = obj.parent as any;
-              }
-              return false;
-            });
-
-            const gunPos = new Vector3(0.3, -0.3, -0.5).applyMatrix4(currentCamera.matrixWorld);
-
-            if (botHit) {
-              let botObj = botHit.object;
-              let botId = '';
-              while (botObj) {
-                if (botObj.userData?.botId) {
-                  botId = botObj.userData.botId;
-                  break;
+              if (botHit) {
+                let botObj = botHit.object;
+                let botId = '';
+                while (botObj) {
+                  if (botObj.userData?.botId) {
+                    botId = botObj.userData.botId;
+                    break;
+                  }
+                  botObj = botObj.parent as any;
                 }
-                botObj = botObj.parent as any;
-              }
-              
-              triggerHitMarker(playerId);
-              damageBot(botId, weapon.damage, playerId, [botHit.point.x, botHit.point.y, botHit.point.z]);
-              
-              if (!weapon.isMelee) {
-                useGameStore.getState().addTracer([gunPos.x, gunPos.y, gunPos.z], [botHit.point.x, botHit.point.y, botHit.point.z]);
-              }
-            } else if (validIntersects.length > 0) {
-              // Hit something else (walls, floor)
-              const hit = validIntersects[0];
-              useGameStore.getState().addImpact([hit.point.x, hit.point.y, hit.point.z], 'white');
-              if (!weapon.isMelee) {
+                
+                if (botId) {
+                  triggerHitMarker(playerId);
+                  damageBot(botId, weapon.damage, playerId, [botHit.point.x, botHit.point.y, botHit.point.z]);
+                  useGameStore.getState().addTracer([gunPos.x, gunPos.y, gunPos.z], [botHit.point.x, botHit.point.y, botHit.point.z]);
+                }
+              } else if (validIntersects.length > 0) {
+                const hit = validIntersects[0];
+                useGameStore.getState().addImpact([hit.point.x, hit.point.y, hit.point.z], 'white');
                 useGameStore.getState().addTracer([gunPos.x, gunPos.y, gunPos.z], [hit.point.x, hit.point.y, hit.point.z]);
+              } else {
+                const endPos = raycaster.current.ray.at(maxRange, new Vector3());
+                useGameStore.getState().addTracer([gunPos.x, gunPos.y, gunPos.z], [endPos.x, endPos.y, endPos.z]);
               }
-            } else if (!weapon.isMelee) {
-              // Miss into the sky (only for ranged)
-              const endPos = raycaster.current.ray.at(100, new Vector3());
-              useGameStore.getState().addTracer([gunPos.x, gunPos.y, gunPos.z], [endPos.x, endPos.y, endPos.z]);
+            }
+          } else if (weapon.isMelee) {
+            soundManager.playMelee();
+            
+            // Melee raycast
+            const currentCamera = state.camera;
+            if (currentCamera) {
+              raycaster.current.setFromCamera(new Vector2(0, 0), currentCamera);
+              const intersects = raycaster.current.intersectObjects(scene.children, true)
+                .filter(i => {
+                  let obj = i.object;
+                  if (obj.type === 'Line2' || obj.type === 'LineSegments2' || obj.name === 'tracer' || obj.name === 'impact') return false;
+                  let current = obj;
+                  while (current) {
+                    if (current.userData?.playerId === playerId) return false;
+                    current = current.parent as any;
+                  }
+                  return true;
+                });
+              
+              const maxRange = 3;
+              const validIntersects = intersects.filter(i => i.distance <= maxRange);
+              const botHit = validIntersects.find(i => {
+                let obj = i.object;
+                while (obj) {
+                  if (obj.userData?.botId) return true;
+                  obj = obj.parent as any;
+                }
+                return false;
+              });
+
+              if (botHit) {
+                let botObj = botHit.object;
+                let botId = '';
+                while (botObj) {
+                  if (botObj.userData?.botId) {
+                    botId = botObj.userData.botId;
+                    break;
+                  }
+                  botObj = botObj.parent as any;
+                }
+                if (botId) {
+                  triggerHitMarker(playerId);
+                  damageBot(botId, weapon.damage, playerId, [botHit.point.x, botHit.point.y, botHit.point.z]);
+                }
+              }
+            }
+          } else {
+            // Standard ranged weapons
+            triggerMuzzleFlash(playerId);
+            soundManager.playShoot();
+            recoilOffset.current = weapon.recoil;
+            consumeAmmo(playerId, weapon.id);
+            
+            const currentCamera = state.camera;
+            if (currentCamera) {
+              (raycaster.current as any).camera = currentCamera;
+              raycaster.current.setFromCamera(new Vector2(0, 0), currentCamera);
+              
+              const intersects = raycaster.current.intersectObjects(scene.children, true)
+                .filter(i => {
+                  let obj = i.object;
+                  if (obj.type === 'Line2' || obj.type === 'LineSegments2' || obj.name === 'tracer' || obj.name === 'impact') return false;
+                  let current = obj;
+                  while (current) {
+                    if (current.userData?.playerId === playerId) return false;
+                    current = current.parent as any;
+                  }
+                  return true;
+                });
+              
+              const maxRange = 100;
+              const validIntersects = intersects.filter(i => i.distance <= maxRange);
+              const botHit = validIntersects.find(i => {
+                let obj = i.object;
+                while (obj) {
+                  if (obj.userData?.botId) return true;
+                  obj = obj.parent as any;
+                }
+                return false;
+              });
+
+              const gunPos = new Vector3(0.3, -0.3, -0.5).applyMatrix4(currentCamera.matrixWorld);
+
+              if (botHit) {
+                let botObj = botHit.object;
+                let botId = '';
+                while (botObj) {
+                  if (botObj.userData?.botId) {
+                    botId = botObj.userData.botId;
+                    break;
+                  }
+                  botObj = botObj.parent as any;
+                }
+                if (botId) {
+                  triggerHitMarker(playerId);
+                  damageBot(botId, weapon.damage, playerId, [botHit.point.x, botHit.point.y, botHit.point.z]);
+                  useGameStore.getState().addTracer([gunPos.x, gunPos.y, gunPos.z], [botHit.point.x, botHit.point.y, botHit.point.z]);
+                }
+              } else if (validIntersects.length > 0) {
+                const hit = validIntersects[0];
+                useGameStore.getState().addImpact([hit.point.x, hit.point.y, hit.point.z], 'white');
+                useGameStore.getState().addTracer([gunPos.x, gunPos.y, gunPos.z], [hit.point.x, hit.point.y, hit.point.z]);
+              } else {
+                const endPos = raycaster.current.ray.at(100, new Vector3());
+                useGameStore.getState().addTracer([gunPos.x, gunPos.y, gunPos.z], [endPos.x, endPos.y, endPos.z]);
+              }
             }
           }
-        } else {
-          // Shark Blaster still consumes ammo
-          useGameStore.setState((s) => ({
-            players: s.players.map(p => p.id === playerId ? {
-              ...p,
-              ammo: { ...p.ammo, [weapon.id]: p.ammo[weapon.id] - 1 }
-            } : p)
-          }));
-          triggerMuzzleFlash(playerId);
-          soundManager.playShoot();
-          recoilOffset.current = weapon.recoil;
         }
-      }
     }
   });
 

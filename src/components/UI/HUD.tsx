@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useGameStore, WEAPONS, ABILITIES } from '../../hooks/useGameStore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Crosshair, Shield, Zap, RotateCcw, Target, LogOut } from 'lucide-react';
+import { Crosshair, Shield, Zap, RotateCcw, Target, LogOut, Gem } from 'lucide-react';
 import { ControlsDropdown } from './ControlsDropdown';
 
 const HitMarker = ({ playerId }: { playerId: number }) => {
@@ -28,6 +28,7 @@ const HitMarker = ({ playerId }: { playerId: number }) => {
 
 export const HUD = ({ playerId }: { playerId: number }) => {
   const score = useGameStore(state => state.players.find(p => p.id === playerId)?.score);
+  const gems = useGameStore(state => state.gems);
   const health = useGameStore(state => state.players.find(p => p.id === playerId)?.health);
   const ammo = useGameStore(state => state.players.find(p => p.id === playerId)?.ammo);
   const weapons = useGameStore(state => state.players.find(p => p.id === playerId)?.weapons);
@@ -39,6 +40,9 @@ export const HUD = ({ playerId }: { playerId: number }) => {
   
   const resetGame = useGameStore(state => state.resetGame);
   const gameState = useGameStore(state => state.gameState);
+  const waveIntermission = useGameStore(state => state.waveIntermission);
+  const waveIntermissionTimer = useGameStore(state => state.waveIntermissionTimer);
+  const currentWave = useGameStore(state => state.currentWave);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -62,6 +66,14 @@ export const HUD = ({ playerId }: { playerId: number }) => {
           <div className="bg-black/50 backdrop-blur-md p-4 rounded-xl border border-white/10">
             <div className="text-xs opacity-50 uppercase tracking-widest mb-1">Score</div>
             <div className="text-3xl font-bold text-emerald-400">{score}</div>
+          </div>
+
+          <div className="bg-black/50 backdrop-blur-md p-4 rounded-xl border border-emerald-500/20 flex items-center gap-3">
+            <Gem size={20} className="text-emerald-400" />
+            <div>
+              <div className="text-[8px] opacity-50 uppercase tracking-widest mb-1">Gems</div>
+              <div className="text-xl font-bold text-emerald-400 leading-none">{gems}</div>
+            </div>
           </div>
           
           <button 
@@ -96,6 +108,29 @@ export const HUD = ({ playerId }: { playerId: number }) => {
           <ControlsDropdown />
         </div>
       </div>
+
+      {/* Wave Intermission Notification */}
+      <AnimatePresence>
+        {waveIntermission && (
+          <motion.div 
+            initial={{ y: -100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -100, opacity: 0 }}
+            className="absolute top-32 left-1/2 -translate-x-1/2 flex flex-col items-center gap-4 pointer-events-none"
+          >
+            <div className="bg-black/80 backdrop-blur-xl px-12 py-6 rounded-3xl border border-cyan-500/30 shadow-[0_0_50px_rgba(6,182,212,0.2)] text-center">
+              <div className="text-cyan-400 text-xs uppercase tracking-[0.3em] mb-2 font-bold">Wave {currentWave + 1} Spawning</div>
+              <div className="text-6xl font-black tabular-nums tracking-tighter">
+                {Math.ceil(waveIntermissionTimer)}
+              </div>
+              <div className="mt-4 flex flex-col gap-2">
+                <div className="text-emerald-400 text-[10px] uppercase font-bold tracking-widest animate-pulse">Players Healed to Full</div>
+                <div className="text-white/40 text-[10px] uppercase tracking-widest">Press <span className="text-white font-bold px-1.5 py-0.5 bg-white/10 rounded border border-white/20 mx-1">B</span> to change loadout</div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Crosshair */}
       <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-80 transition-opacity ${isADS && currentWeapon.id === 'sniper' ? 'opacity-0' : 'opacity-80'}`}>
